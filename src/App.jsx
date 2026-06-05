@@ -448,8 +448,157 @@ export default function LifeSimulator() {
 
   // 結果プレビューモーダル
   const [showPreview, setShowPreview] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
 
-  const generatePDF = () => setShowPreview(true);
+  const generatePDF = async () => {
+    setPdfLoading(true);
+    try {
+      // jsPDFを動的ロード
+      if (!window.jspdf) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+          s.onload = resolve;
+          s.onerror = reject;
+          document.head.appendChild(s);
+        });
+      }
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const W = 210; const M = 14; const CW = (W - M * 2 - 5) / 2;
+      let y = 0;
+
+      // ヘッダー
+      doc.setFillColor(30, 58, 95);
+      doc.rect(0, 0, W, 22, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(8); doc.text('ResOne \u00d7 \u30e9\u30a4\u30d5\u30d7\u30e9\u30f3\u30cb\u30f3\u30b0', M, 9);
+      doc.setFontSize(15); doc.setFont('helvetica', 'bold');
+      doc.text('Life Simulation Report', M, 18);
+      doc.setFontSize(8); doc.setFont('helvetica', 'normal');
+      doc.text(new Date().toLocaleDateString('ja-JP'), W - M, 18, { align: 'right' });
+      y = 28;
+
+      // サマリーカード4枚（2列）
+      const cards = [
+        { label: '90\u6b73\u6642\u70b9\u306e\u8cc7\u7523', val: formatMan(summary.finalAsset), bg: summary.finalAsset > 0 ? [239,246,255] : [254,242,242], fc: summary.finalAsset > 0 ? [37,99,235] : [220,38,38] },
+        { label: '\u30d4\u30fc\u30af\u8cc7\u7523', val: formatMan(summary.peakAsset), bg: [240,253,244], fc: [16,185,129] },
+        { label: '\u6708\u3005\u306e\u30ed\u30fc\u30f3\u8fd4\u6e08', val: `${summary.monthlyLoan?.toFixed(1)}\u4e07\u5186`, bg: [255,251,235], fc: [245,158,11] },
+        { label: '\u8cc7\u7523\u30de\u30a4\u30ca\u30b9\u8ee2\u843d', val: summary.negativeAge ? `${summary.negativeAge}\u6b73\uff5e` : '\u306a\u3057 \u2713', bg: summary.negativeAge ? [254,242,242] : [240,253,244], fc: summary.negativeAge ? [220,38,38] : [22,163,74] },
+      ];
+      cards.forEach((c, i) => {
+        const cx = M + (i % 2) * (CW + 5);
+        const cy = y + Math.floor(i / 2) * 20;
+        doc.setFillColor(...c.bg); doc.roundedRect(cx, cy, CW, 16, 2, 2, 'F');
+        doc.setTextColor(100,116,139); doc.setFontSize(7); doc.setFont('helvetica','normal');
+        doc.text(c.label, cx + CW/2, cy + 5, { align: 'center' });
+        doc.setTextColor(...c.fc); doc.setFontSize(12); doc.setFont('helvetica','bold');
+        doc.text(c.val, cx + CW/2, cy + 12, { align: 'center' });
+      });
+      y += 44;
+
+      // 年金サマリー
+      const totalNenkin = Math.round(((summary.adjMyNenkin||0) + (hasSpouse ? (summary.adjSpNenkin||0) : 0)) * 10) / 10;
+      doc.setFillColor(240,249,255); doc.roundedRect(M, y, W-M*2, 20, 2, 2, 'F');
+      doc.setTextColor(3,105,161); doc.setFontSize(8); doc.setFont('helvetica','bold');
+      doc.text(`Pension  (from age ${nenkinStartAge})`, M+3, y+6);
+      const nItems = [
+        ['Self', `${summary.adjMyNenkin} man/yr`],
+        ...(hasSpouse ? [[`Spouse(${spouseType})`, `${summary.adjSpNenkin} man/yr`]] : []),
+        ['Total', `${totalNenkin} man/yr`],
+      ];
+      const nw = (W - M*2 - 6) / nItems.length;
+      nItems.forEach(([l,v], i) => {
+        const nx = M + 3 + i * (nw + 2);
+        doc.setFillColor(255,255,255); doc.roundedRect(nx, y+9, nw, 9, 1, 1, 'F');
+        doc.setTextColor(100,116,139); doc.setFontSize(6); doc.setFont('helvetica','normal');
+        doc.text(l, nx + nw/2, y+13, { align:'center' });
+        doc.setTextColor(3,105,161); doc.setFontSize(8); doc.setFont('helvetica','bold');
+        doc.text(v, nx + nw/2, y+17, { align:'center' });
+      });
+      y += 26;
+
+      // 必要保障額
+      const monthlyLoanAmt = calcMonthlyLoan();
+      const fullIncome = income + (hasSpouse ? spouseIncome : 0);
+      const disabledInc = fullIncome * 0.3;
+      const expTotal = living + monthlyLoanAmt;
+      const disShort = Math.max(0, Math.round((expTotal - disabledInc)*10)/10);
+      const disYrs = Math.max(0, retireAge - disabledAge);
+      const disTotal = Math.round(disShort * 12 * disYrs);
+      const izoku = calcIzokuNenkin(income, age, kosei_years, children);
+      const izokuM = Math.round(izoku.total/12*10)/10;
+      const expDeath = hasDansin ? living : living + monthlyLoanAmt;
+      const deathShort = Math.max(0, Math.round((expDeath - izokuM)*10)/10);
+      const deathYrs = Math.max(0, children > 0 ? 18 - (childEduSettings[0]?.currentAge||0) + (retireAge-age) : retireAge-age);
+      const deathTotal = Math.round(deathShort * 12 * deathYrs);
+
+      doc.setFillColor(255,251,235); doc.roundedRect(M, y, CW, 28, 2, 2, 'F');
+      doc.setTextColor(146,64,14); doc.setFontSize(7); doc.setFont('helvetica','bold');
+      doc.text(`Disability Insurance (age ${disabledAge})`, M+3, y+6);
+      doc.setFontSize(9); doc.setTextColor(220,38,38);
+      doc.text(disShort > 0 ? `${disShort} man/mo` : 'Not needed', M+3, y+14);
+      doc.setFontSize(7); doc.setTextColor(146,64,14);
+      doc.text(`Period: ${disYrs}yrs  Total: ${disTotal > 0 ? formatMan(disTotal) : '-'}`, M+3, y+21);
+
+      doc.setFillColor(255,241,242); doc.roundedRect(M+CW+5, y, CW, 28, 2, 2, 'F');
+      doc.setTextColor(159,18,57); doc.setFontSize(7); doc.setFont('helvetica','bold');
+      doc.text(`Death Insurance (Dansin: ${hasDansin?'Yes':'No'})`, M+CW+8, y+6);
+      doc.setFontSize(9); doc.setTextColor(deathShort > 0 ? 220 : 22, deathShort > 0 ? 38 : 163, deathShort > 0 ? 38 : 74);
+      doc.text(deathShort > 0 ? `-${deathShort} man/mo` : 'No shortage', M+CW+8, y+14);
+      doc.setFontSize(7); doc.setTextColor(159,18,57);
+      doc.text(`Survivor pension: ${izokuM}man/mo  Total gap: ${deathTotal > 0 ? formatMan(deathTotal) : '-'}`, M+CW+8, y+21);
+      y += 34;
+
+      // 資産推移バーグラフ
+      const intervals = chartData.filter(d => (d.age - age) % 10 === 0);
+      const maxVal = Math.max(...intervals.map(d => Math.abs(d.資産残高)), 1);
+      doc.setFillColor(255,255,255); doc.setDrawColor(226,232,240);
+      doc.roundedRect(M, y, W-M*2, intervals.length * 10 + 12, 2, 2, 'FD');
+      doc.setTextColor(30,41,59); doc.setFontSize(8); doc.setFont('helvetica','bold');
+      doc.text('Asset Transition', M+3, y+7);
+      intervals.forEach((d, i) => {
+        const by = y + 12 + i * 10;
+        const isPos = d.資産残高 >= 0;
+        const bw = Math.abs(d.資産残高) / maxVal * (W - M*2 - 40);
+        doc.setTextColor(100,116,139); doc.setFontSize(6.5); doc.setFont('helvetica','normal');
+        doc.text(`${d.age}`, M+3, by+5);
+        doc.setFillColor(...(isPos ? [37,99,235] : [220,38,38]));
+        doc.roundedRect(M+14, by, bw, 7, 1, 1, 'F');
+        doc.setTextColor(30,41,59);
+        doc.text(formatMan(d.資産残高), M+16+bw, by+5);
+      });
+      y += intervals.length * 10 + 18;
+
+      // 入力条件
+      doc.setFillColor(248,250,252); doc.roundedRect(M, y, W-M*2, 38, 2, 2, 'F');
+      doc.setTextColor(30,41,59); doc.setFontSize(7); doc.setFont('helvetica','bold');
+      doc.text('Input Conditions', M+3, y+6);
+      doc.setFont('helvetica','normal'); doc.setTextColor(71,85,105);
+      const rows = [
+        [`Age/Retire: ${age}/${retireAge}`, `Income: ${income}man+bonus${bonus}man`, `Loan: ${loanAmount}man/${loanYears}yr/${loanRate}%`],
+        [`Savings: ${savings}man`, `Retirement: ${retirement+(hasSpouse?spouseRetirement:0)}man`, `Inflation: ${inflationRate}%`],
+        [`Children: ${children}`, `Nenkin from: ${nenkinStartAge}`, hasSpouse ? `Spouse: ${spouseType}` : ''],
+      ];
+      rows.forEach((row, ri) => row.forEach((cell, ci) => {
+        doc.text(cell, M+3+ci*62, y+13+ri*8);
+      }));
+      y += 44;
+
+      // フッター
+      doc.setDrawColor(226,232,240); doc.line(M, y, W-M, y);
+      doc.setTextColor(148,163,184); doc.setFontSize(6.5);
+      doc.text('\u203b This simulation is for reference only.', M, y+5);
+      doc.text('ResOne Life Simulator', W-M, y+5, { align:'right' });
+
+      doc.save(`LifeSim_${age}sai_${new Date().toLocaleDateString('ja-JP').replace(/\//g,'-')}.pdf`);
+    } catch(e) {
+      alert('PDF\u51fa\u529b\u306b\u5931\u6557\u3057\u307e\u3057\u305f: ' + e.message);
+    }
+    setPdfLoading(false);
+  };
+
+  const generatePDFPreview = () => setShowPreview(true);
 
   const renderStep = () => {
     switch (step) {
@@ -1007,17 +1156,22 @@ export default function LifeSimulator() {
               </p>
             </div>
 
-            {/* 結果プレビューボタン */}
-            <button onClick={generatePDF} style={{
-              width: "100%", marginTop: 20, padding: "16px 0", borderRadius: 14, border: "none",
-              background: "linear-gradient(135deg, #dc2626, #b91c1c)",
-              fontSize: 15, fontWeight: 800, color: "white", cursor: "pointer",
-              boxShadow: "0 4px 14px rgba(220,38,38,0.35)",
-              fontFamily: "'Noto Sans JP', sans-serif",
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 8
-            }}>
-              📄 試算結果を表示・共有
-            </button>
+            {/* ボタン2つ */}
+            <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+              <button onClick={generatePDFPreview} style={{
+                flex: 1, padding: "14px 0", borderRadius: 14, border: "2px solid #2563eb",
+                background: "white", fontSize: 13, fontWeight: 700, color: "#2563eb",
+                cursor: "pointer", fontFamily: "'Noto Sans JP', sans-serif",
+              }}>📋 画面で確認</button>
+              <button onClick={generatePDF} disabled={pdfLoading} style={{
+                flex: 1, padding: "14px 0", borderRadius: 14, border: "none",
+                background: pdfLoading ? "#e2e8f0" : "linear-gradient(135deg, #dc2626, #b91c1c)",
+                fontSize: 13, fontWeight: 800, color: pdfLoading ? "#94a3b8" : "white",
+                cursor: pdfLoading ? "not-allowed" : "pointer",
+                boxShadow: pdfLoading ? "none" : "0 4px 14px rgba(220,38,38,0.35)",
+                fontFamily: "'Noto Sans JP', sans-serif",
+              }}>{pdfLoading ? "⏳ 生成中..." : "📄 PDFで保存"}</button>
+            </div>
           </div>
         );
     }
