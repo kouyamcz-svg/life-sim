@@ -703,9 +703,30 @@ export default function LifeSimulator() {
     </div>
     </body></html>`;
 
-    // 画面で確認モーダルを開いてから印刷
-    setShowPreview(true);
-    setPdfLoading(false);
+    // localStorageにデータを保存して印刷専用ページへ遷移
+    const monthlyLoanAmt = calcMonthlyLoan();
+    const fullIncome = income + (hasSpouse ? spouseIncome : 0);
+    const expTotal = living + monthlyLoanAmt;
+    const disShort = Math.max(0, Math.round((expTotal - fullIncome * 0.3)*10)/10);
+    const disYrs = Math.max(0, retireAge - disabledAge);
+    const disTotal = Math.round(disShort * 12 * disYrs);
+    const izoku = calcIzokuNenkin(income, age, kosei_years, children);
+    const izokuM = Math.round(izoku.total/12*10)/10;
+    const expDeath = hasDansin ? living : living + monthlyLoanAmt;
+    const deathShort = Math.max(0, Math.round((expDeath - izokuM)*10)/10);
+    const deathYrs = Math.max(0, children > 0 ? 18 - (childEduSettings[0]?.currentAge||0) + (retireAge-age) : retireAge-age);
+
+    localStorage.setItem('lifesim_data', JSON.stringify({
+      summary, age, retireAge, hasSpouse, spouseType, nenkinStartAge,
+      income, bonus, spouseIncome, spouseBonus, living, loanAmount, loanYears, loanRate,
+      savings, retirement, spouseRetirement, children, inflationRate,
+      disabledAge, hasDansin,
+      disShort, disYrs, disTotal, izokuM, deathShort, deathYrs,
+      deathTotal: Math.round(deathShort * 12 * deathYrs),
+      monthlyLoan: monthlyLoanAmt,
+      chartData: chartData.map(d => ({ age: d.age, asset: d.資産残高 })),
+    }));
+    window.location.href = '/print.html';
   };
 
   const [pdfUrl, setPdfUrl] = useState(null);
@@ -1267,15 +1288,21 @@ export default function LifeSimulator() {
               </p>
             </div>
 
-            {/* ボタン */}
-            <button onClick={generatePDFPreview} style={{
-              width: "100%", marginTop: 20, padding: "16px 0", borderRadius: 14, border: "none",
-              background: "linear-gradient(135deg, #dc2626, #b91c1c)",
-              fontSize: 15, fontWeight: 800, color: "white", cursor: "pointer",
-              boxShadow: "0 4px 14px rgba(220,38,38,0.35)",
-              fontFamily: "'Noto Sans JP', sans-serif",
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 8
-            }}>📄 試算結果を確認・PDF保存</button>
+            {/* ボタン2つ */}
+            <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+              <button onClick={generatePDFPreview} style={{
+                flex: 1, padding: "14px 0", borderRadius: 14, border: "2px solid #2563eb",
+                background: "white", fontSize: 13, fontWeight: 700, color: "#2563eb",
+                cursor: "pointer", fontFamily: "'Noto Sans JP', sans-serif",
+              }}>📋 画面で確認</button>
+              <button onClick={generatePDF} style={{
+                flex: 1, padding: "14px 0", borderRadius: 14, border: "none",
+                background: "linear-gradient(135deg, #dc2626, #b91c1c)",
+                fontSize: 13, fontWeight: 800, color: "white", cursor: "pointer",
+                boxShadow: "0 4px 14px rgba(220,38,38,0.35)",
+                fontFamily: "'Noto Sans JP', sans-serif",
+              }}>📄 PDFで保存</button>
+            </div>
           </div>
         );
     }
