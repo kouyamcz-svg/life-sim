@@ -1296,7 +1296,7 @@ export default function LifeSimulator() {
         const intervals = chartData.filter(d => (d.age - age) % 10 === 0);
         const maxVal = Math.max(...intervals.map(d => Math.abs(d.資産残高)), 1);
         return (
-          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, overflowY: "auto" }}>
+          <div data-print="modal" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, overflowY: "auto" }}>
             <div style={{ background: "white", margin: "0 auto", maxWidth: 480, minHeight: "100vh" }}>
               {/* モーダルヘッダー */}
               <div style={{ background: "linear-gradient(135deg, #1e3a5f, #2563eb)", padding: "16px 20px", color: "white", position: "sticky", top: 0, zIndex: 10 }}>
@@ -1306,12 +1306,28 @@ export default function LifeSimulator() {
                     <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800, fontFamily: "'Noto Sans JP', sans-serif" }}>試算結果レポート</h2>
                     <p style={{ margin: "2px 0 0", fontSize: 10, opacity: 0.8, fontFamily: "'Noto Sans JP', sans-serif" }}>{new Date().toLocaleDateString("ja-JP")} 作成</p>
                   </div>
-                  <button onClick={() => setShowPreview(false)} style={{
+                  <button data-no-print onClick={() => setShowPreview(false)} style={{
                     width: 40, height: 40, borderRadius: "50%", border: "none", background: "rgba(255,255,255,0.2)",
                     color: "white", fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center"
                   }}>✕</button>
                 </div>
-                <button onClick={() => window.print()} style={{
+                <button onClick={() => {
+                  // 印刷専用スタイルを動的に挿入
+                  const style = document.createElement('style');
+                  style.id = 'print-style';
+                  style.innerHTML = `
+                    @media print {
+                      body > div:first-child > * { display: none !important; }
+                      body > div:first-child > div[data-print="modal"] { display: block !important; position: static !important; background: white !important; overflow: visible !important; }
+                      body > div:first-child > div[data-print="modal"] > div { max-width: 100% !important; min-height: auto !important; }
+                      [data-no-print] { display: none !important; }
+                      * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+                    }
+                  `;
+                  document.head.appendChild(style);
+                  window.print();
+                  setTimeout(() => { const s = document.getElementById('print-style'); if(s) s.remove(); }, 1000);
+                }} style={{
                   width: "100%", marginTop: 10, padding: "10px 0", borderRadius: 10, border: "none",
                   background: "rgba(255,255,255,0.2)", color: "white", fontSize: 13, fontWeight: 700,
                   cursor: "pointer", fontFamily: "'Noto Sans JP', sans-serif"
