@@ -703,17 +703,13 @@ export default function LifeSimulator() {
     </div>
     </body></html>`;
 
-    const w = window.open("", "_blank", "width=520,height=900");
-    if (w) {
-      w.document.write(html);
-      w.document.close();
-    } else {
-      const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      window.location.href = url;
-    }
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    setPdfUrl(url);
     setPdfLoading(false);
   };
+
+  const [pdfUrl, setPdfUrl] = useState(null);
   const generatePDFPreview = () => setShowPreview(true);
 
   const renderStep = () => {
@@ -1596,7 +1592,24 @@ export default function LifeSimulator() {
         );
       })()}
 
-      {/* ヘッダー */}
+      {/* PDF iframeモーダル */}
+      {pdfUrl && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 2000, display: "flex", flexDirection: "column" }}>
+          <div style={{ background: "#1e3a5f", padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ color: "white", fontWeight: 700, fontSize: 14, fontFamily: "'Noto Sans JP', sans-serif" }}>📄 試算結果レポート</span>
+            <div style={{ display: "flex", gap: 8 }}>
+              <a href={pdfUrl} download={`LifeSim_${age}歳_${new Date().toLocaleDateString("ja-JP").replace(/\//g,"-")}.html`}
+                style={{ background: "#2563eb", color: "white", border: "none", padding: "8px 14px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", textDecoration: "none", fontFamily: "'Noto Sans JP', sans-serif" }}>
+                ⬇️ 保存
+              </a>
+              <button onClick={() => { URL.revokeObjectURL(pdfUrl); setPdfUrl(null); }} style={{
+                background: "rgba(255,255,255,0.2)", color: "white", border: "none", padding: "8px 14px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "'Noto Sans JP', sans-serif"
+              }}>✕ 閉じる</button>
+            </div>
+          </div>
+          <iframe src={pdfUrl} style={{ flex: 1, border: "none", background: "white" }} title="PDF Preview" />
+        </div>
+      )}
       <div style={{
         background: "linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%)",
         padding: "20px 24px 16px",
