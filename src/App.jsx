@@ -450,9 +450,8 @@ export default function LifeSimulator() {
   const [showPreview, setShowPreview] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
 
-  const generatePDF = () => {
-    // プレビューモーダルのHTMLを新しいウィンドウで開いて印刷
-    setPdfLoading(true);
+  // プレビューと共通のデータ計算
+  const calcReportData = () => {
     const totalNenkin = Math.round(((summary.adjMyNenkin||0) + (hasSpouse ? (summary.adjSpNenkin||0) : 0)) * 10) / 10;
     const intervals = chartData.filter(d => (d.age - age) % 10 === 0);
     const maxVal = Math.max(...intervals.map(d => Math.abs(d.資産残高)), 1);
@@ -468,6 +467,14 @@ export default function LifeSimulator() {
     const deathShort = Math.max(0, Math.round((expDeath - izokuM)*10)/10);
     const deathYrs = Math.max(0, children > 0 ? 18 - (childEduSettings[0]?.currentAge||0) + (retireAge-age) : retireAge-age);
     const deathTotal = Math.round(deathShort * 12 * deathYrs);
+    return { totalNenkin, intervals, maxVal, monthlyLoanAmt, disShort, disYrs, disTotal, izokuM, deathShort, deathYrs, deathTotal, izoku };
+  };
+
+  const generatePDF = () => {
+    setPdfLoading(true);
+    const { totalNenkin, intervals, maxVal, monthlyLoanAmt, disShort, disYrs, disTotal, izokuM, deathShort, deathYrs, deathTotal, izoku } = calcReportData();
+
+    const pageBreak = `<div style="page-break-before:always"></div>`;
 
     const html = `<!DOCTYPE html><html lang="ja"><head>
     <meta charset="UTF-8"/>
@@ -475,130 +482,232 @@ export default function LifeSimulator() {
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;800&display=swap" rel="stylesheet"/>
     <style>
       *{margin:0;padding:0;box-sizing:border-box}
-      body{font-family:'Noto Sans JP',sans-serif;background:white;color:#1e293b;font-size:12px;padding:16px}
-      @media print{body{padding:8px} .no-print{display:none} @page{margin:10mm}}
-      .print-btn{position:fixed;bottom:16px;right:16px;background:#2563eb;color:white;border:none;padding:12px 20px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 4px 12px rgba(37,99,235,0.4)}
-      h1{font-size:18px;font-weight:800;margin-bottom:4px}
-      .sub{font-size:9px;opacity:0.7;letter-spacing:2px}
+      body{font-family:'Noto Sans JP',sans-serif;background:white;color:#1e293b;font-size:11px}
+      @media print{.no-print{display:none} @page{margin:8mm} .page{padding:8px}}
+      .print-btn{position:fixed;bottom:16px;right:16px;background:#2563eb;color:white;border:none;padding:12px 20px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 4px 12px rgba(37,99,235,0.4);z-index:999}
+      .page{padding:16px;max-width:480px;margin:0 auto}
       .header{background:linear-gradient(135deg,#1e3a5f,#2563eb);color:white;padding:14px 16px;border-radius:10px;margin-bottom:12px}
-      .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
-      .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px}
-      .card{border-radius:8px;padding:10px;text-align:center}
-      .label{font-size:9px;color:#64748b;margin-bottom:4px}
-      .value{font-size:15px;font-weight:800}
+      .header h1{font-size:17px;font-weight:800}
+      .header .sub{font-size:8px;opacity:0.7;letter-spacing:2px;margin-bottom:3px}
+      .header .date{font-size:9px;opacity:0.8;margin-top:2px}
+      .section{margin-bottom:14px}
       .section-title{font-size:11px;font-weight:800;color:#475569;border-bottom:2px solid #e2e8f0;padding-bottom:3px;margin-bottom:8px}
+      .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+      .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+      .card{border-radius:8px;padding:10px;text-align:center}
+      .card .lbl{font-size:8px;color:#64748b;margin-bottom:3px}
+      .card .val{font-size:14px;font-weight:800}
       .bar-row{display:flex;align-items:center;gap:6px;margin-bottom:5px}
-      .bar-label{font-size:10px;color:#64748b;width:30px;flex-shrink:0}
-      .bar-track{flex:1;background:#e2e8f0;border-radius:3px;height:12px}
-      .bar-fill{height:12px;border-radius:3px}
-      .bar-val{font-size:10px;font-weight:700;width:55px;text-align:right;flex-shrink:0}
+      .bar-lbl{font-size:9px;color:#64748b;width:28px;flex-shrink:0}
+      .bar-track{flex:1;background:#e2e8f0;border-radius:3px;height:11px}
+      .bar-fill{height:11px;border-radius:3px}
+      .bar-val{font-size:9px;font-weight:700;width:52px;text-align:right;flex-shrink:0}
       table{width:100%;border-collapse:collapse}
-      td{padding:4px 6px;font-size:10px;border-bottom:1px solid #f1f5f9}
+      td{padding:4px 6px;font-size:9px;border-bottom:1px solid #f1f5f9}
       td:first-child{color:#64748b;width:38%}
       td:last-child{font-weight:700}
-      .comment{border-radius:8px;padding:10px;font-size:11px;line-height:1.7;margin-bottom:10px}
-      .footer{font-size:9px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:8px;display:flex;justify-content:space-between}
-      .section{margin-bottom:12px}
+      .comment{border-radius:8px;padding:10px;font-size:10px;line-height:1.7;margin-bottom:10px}
+      .footer{font-size:8px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:6px;display:flex;justify-content:space-between;margin-top:10px}
+      .risk-box{border-radius:8px;padding:10px;margin-bottom:8px}
+      .svg-wrap{background:white;border-radius:8px;padding:8px;margin-top:8px}
     </style></head><body>
     <button class="print-btn no-print" onclick="window.print()">🖨️ PDFとして保存</button>
-    <div class="header">
-      <div class="sub">ResOne × ライフプランニング</div>
-      <h1>住宅購入ライフシミュレーション結果</h1>
-      <div style="font-size:10px;opacity:0.8;margin-top:2px">作成日：${new Date().toLocaleDateString("ja-JP")}</div>
-    </div>
 
-    <div class="section">
-      <div class="section-title">📊 試算サマリー</div>
-      <div class="grid2">
-        <div class="card" style="background:${summary.finalAsset>0?"#eff6ff":"#fef2f2"}">
-          <div class="label">90歳時点の資産</div>
-          <div class="value" style="color:${summary.finalAsset>0?"#2563eb":"#dc2626"}">${formatMan(summary.finalAsset)}</div>
+    <!-- ページ1 -->
+    <div class="page">
+      <div class="header">
+        <div class="sub">ResOne × ライフプランニング</div>
+        <h1>住宅購入ライフシミュレーション結果</h1>
+        <div class="date">作成日：${new Date().toLocaleDateString("ja-JP")}　　1 / 2</div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">📊 試算サマリー</div>
+        <div class="grid2" style="margin-bottom:8px">
+          <div class="card" style="background:${summary.finalAsset>0?"#eff6ff":"#fef2f2"}">
+            <div class="lbl">90歳時点の資産</div>
+            <div class="val" style="color:${summary.finalAsset>0?"#2563eb":"#dc2626"}">${formatMan(summary.finalAsset)}</div>
+          </div>
+          <div class="card" style="background:#f0fdf4">
+            <div class="lbl">ピーク資産</div>
+            <div class="val" style="color:#10b981">${formatMan(summary.peakAsset)}</div>
+          </div>
+          <div class="card" style="background:#fffbeb">
+            <div class="lbl">月々のローン返済</div>
+            <div class="val" style="color:#f59e0b">${summary.monthlyLoan?.toFixed(1)}万円</div>
+          </div>
+          <div class="card" style="background:${summary.negativeAge?"#fef2f2":"#f0fdf4"}">
+            <div class="lbl">資産マイナス転落</div>
+            <div class="val" style="color:${summary.negativeAge?"#dc2626":"#16a34a"}">${summary.negativeAge?`${summary.negativeAge}歳〜`:"なし ✓"}</div>
+          </div>
         </div>
-        <div class="card" style="background:#f0fdf4">
-          <div class="label">ピーク資産</div>
-          <div class="value" style="color:#10b981">${formatMan(summary.peakAsset)}</div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">🏛️ 年金受給額（試算）　${nenkinStartAge}歳から受給</div>
+        <div class="${hasSpouse?"grid3":"grid2"}">
+          <div class="card" style="background:#f0f9ff"><div class="lbl">ご自身</div><div class="val" style="color:#0369a1;font-size:12px">${summary.adjMyNenkin}万円/年</div></div>
+          ${hasSpouse?`<div class="card" style="background:#f0f9ff"><div class="lbl">配偶者（${spouseType}）</div><div class="val" style="color:#0369a1;font-size:12px">${summary.adjSpNenkin}万円/年</div></div>`:""}
+          <div class="card" style="background:#eff6ff"><div class="lbl">世帯合計</div><div class="val" style="color:#2563eb;font-size:12px">${totalNenkin}万円/年</div></div>
         </div>
-        <div class="card" style="background:#fffbeb">
-          <div class="label">月々のローン返済</div>
-          <div class="value" style="color:#f59e0b">${summary.monthlyLoan?.toFixed(1)}万円</div>
-        </div>
-        <div class="card" style="background:${summary.negativeAge?"#fef2f2":"#f0fdf4"}">
-          <div class="label">資産マイナス転落</div>
-          <div class="value" style="color:${summary.negativeAge?"#dc2626":"#16a34a"}">${summary.negativeAge?`${summary.negativeAge}歳〜`:"なし ✓"}</div>
-        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">📈 資産推移（10年刻み）</div>
+        ${intervals.map(d=>{
+          const w=Math.round(Math.abs(d.資産残高)/maxVal*100);
+          const isPos=d.資産残高>=0;
+          return `<div class="bar-row">
+            <div class="bar-lbl">${d.age}歳</div>
+            <div class="bar-track"><div class="bar-fill" style="width:${w}%;background:${isPos?"#2563eb":"#dc2626"}"></div></div>
+            <div class="bar-val" style="color:${isPos?"#2563eb":"#dc2626"}">${formatMan(d.資産残高)}</div>
+          </div>`;
+        }).join("")}
+      </div>
+
+      <div class="section">
+        <div class="section-title">📋 入力条件</div>
+        <table>
+          <tr><td>年齢 / 定年</td><td>${age}歳 / ${retireAge}歳</td></tr>
+          <tr><td>月収（手取り）</td><td>${income}万円 ＋ボーナス${bonus}万円/年</td></tr>
+          ${hasSpouse?`<tr><td>配偶者収入</td><td>${spouseIncome}万円 ＋ボーナス${spouseBonus}万円/年（${spouseType}）</td></tr>`:""}
+          <tr><td>住宅ローン</td><td>${loanAmount}万円 / ${loanYears}年 / 金利${loanRate}%</td></tr>
+          <tr><td>現在の貯蓄 / 退職金</td><td>${savings}万円 / ${retirement+(hasSpouse?spouseRetirement:0)}万円</td></tr>
+          <tr><td>子ども / 年金受給開始</td><td>${children}人 / ${nenkinStartAge}歳</td></tr>
+          <tr><td>インフレ率</td><td>${inflationRate}%/年</td></tr>
+        </table>
+      </div>
+
+      <div class="comment" style="background:${summary.finalAsset>0?"#eff6ff":"#fef2f2"};color:${summary.finalAsset>0?"#1e40af":"#991b1b"}">
+        ${summary.finalAsset>0
+          ?`✅ このプランでは老後まで資産がプラスを維持できる見込みです。月々${summary.monthlyLoan?.toFixed(1)}万円の返済も現在の収支から無理なく対応できます。`
+          :`⚠️ ${summary.negativeAge}歳頃に資産がマイナスになる可能性があります。保険や貯蓄の見直しで対策できます。`}
+      </div>
+      <div class="footer">
+        <span>※本シミュレーションは概算です。実際のプランニングはFPや専門家にご相談ください。</span>
+        <span>ResOne Life Simulator</span>
       </div>
     </div>
 
-    <div class="section">
-      <div class="section-title">🏛️ 年金受給額（試算）　${nenkinStartAge}歳から受給</div>
-      <div class="grid3">
-        <div class="card" style="background:#f0f9ff"><div class="label">ご自身</div><div class="value" style="color:#0369a1;font-size:13px">${summary.adjMyNenkin}万円/年</div></div>
-        ${hasSpouse?`<div class="card" style="background:#f0f9ff"><div class="label">配偶者（${spouseType}）</div><div class="value" style="color:#0369a1;font-size:13px">${summary.adjSpNenkin}万円/年</div></div>`:""}
-        <div class="card" style="background:#eff6ff"><div class="label">世帯合計</div><div class="value" style="color:#2563eb;font-size:13px">${totalNenkin}万円/年</div></div>
+    ${pageBreak}
+
+    <!-- ページ2 -->
+    <div class="page">
+      <div class="header">
+        <div class="sub">ResOne × ライフプランニング</div>
+        <h1>住宅購入ライフシミュレーション結果</h1>
+        <div class="date">作成日：${new Date().toLocaleDateString("ja-JP")}　　2 / 2</div>
       </div>
-    </div>
 
-    <div class="section">
-      <div class="section-title">🛡️ 必要保障額の目安</div>
-      <div class="grid2">
-        <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px">
-          <div style="font-size:10px;font-weight:800;color:#92400e;margin-bottom:6px">🏥 就業不能（${disabledAge}歳）</div>
-          <div style="font-size:13px;font-weight:800;color:#dc2626">${disShort>0?`月${disShort}万円不足`:"不足なし"}</div>
-          <div style="font-size:9px;color:#92400e;margin-top:4px">期間：${disYrs}年　総額：${disTotal>0?formatMan(disTotal):"-"}</div>
+      <div class="section">
+        <div class="section-title">🛡️ 必要保障額の目安</div>
+
+        <!-- 就業不能 -->
+        <div class="risk-box" style="background:#fffbeb;border:1px solid #fde68a;margin-bottom:10px">
+          <div style="font-size:11px;font-weight:800;color:#92400e;margin-bottom:8px">🏥 就業不能・収入保障保険（${disabledAge}歳で就業不能の場合）</div>
+          <div class="grid3" style="margin-bottom:8px">
+            <div class="card" style="background:white">
+              <div class="lbl">必要月額給付</div>
+              <div class="val" style="color:#dc2626;font-size:13px">${disShort>0?`${disShort}万円`:"不要"}</div>
+            </div>
+            <div class="card" style="background:white">
+              <div class="lbl">補填期間</div>
+              <div class="val" style="color:#f59e0b;font-size:13px">${disYrs}年間</div>
+            </div>
+            <div class="card" style="background:white">
+              <div class="lbl">総不足額</div>
+              <div class="val" style="color:#1e293b;font-size:13px">${disTotal>0?`約${formatMan(disTotal)}`:"-"}</div>
+            </div>
+          </div>
+          <!-- 就業不能グラフ -->
+          <div class="svg-wrap">
+            <div style="font-size:9px;font-weight:700;color:#92400e;text-align:center;margin-bottom:4px">月次キャッシュフロー比較</div>
+            ${(()=>{
+              const mi = income+(hasSpouse?spouseIncome:0);
+              const di = Math.round(mi*0.3*10)/10;
+              const ex = Math.round((living+monthlyLoanAmt)*10)/10;
+              const mv = Math.max(mi,ex)*1.1;
+              const sc = v=>(v/mv*80);
+              const bw=52;const gap=18;const bY=100;const x1=30;const x2=x1+bw+gap;const x3=x2+bw+gap;
+              return `<svg viewBox="0 0 260 115" style="width:100%;height:auto">
+                <rect x="${x1}" y="${bY-sc(mi)}" width="${bw}" height="${sc(mi)}" rx="3" fill="#2563eb" opacity="0.85"/>
+                <text x="${x1+bw/2}" y="${bY-sc(mi)-3}" text-anchor="middle" font-size="8" fill="#1e40af" font-weight="700">${mi}万</text>
+                <text x="${x1+bw/2}" y="${bY+10}" text-anchor="middle" font-size="7" fill="#64748b">就業前収入</text>
+                <rect x="${x2}" y="${bY-sc(di)}" width="${bw}" height="${sc(di)}" rx="3" fill="#f59e0b" opacity="0.85"/>
+                ${disShort>0?`<rect x="${x2}" y="${bY-sc(di)-sc(disShort)}" width="${bw}" height="${sc(disShort)}" rx="3" fill="#dc2626" opacity="0.5"/>
+                <text x="${x2+bw/2}" y="${bY-sc(di)-sc(disShort)-3}" text-anchor="middle" font-size="7" fill="#dc2626" font-weight="700">不足${disShort}万</text>`:""}
+                <text x="${x2+bw/2}" y="${bY-sc(di)-3}" text-anchor="middle" font-size="8" fill="#92400e" font-weight="700">${di}万</text>
+                <text x="${x2+bw/2}" y="${bY+10}" text-anchor="middle" font-size="7" fill="#64748b">障害年金等</text>
+                <rect x="${x3}" y="${bY-sc(ex)}" width="${bw}" height="${sc(ex)}" rx="3" fill="#475569" opacity="0.7"/>
+                <text x="${x3+bw/2}" y="${bY-sc(ex)-3}" text-anchor="middle" font-size="8" fill="#1e293b" font-weight="700">${ex}万</text>
+                <text x="${x3+bw/2}" y="${bY+10}" text-anchor="middle" font-size="7" fill="#64748b">月間支出</text>
+                <line x1="10" y1="${bY}" x2="250" y2="${bY}" stroke="#e2e8f0" stroke-width="1.5"/>
+              </svg>`;
+            })()}
+          </div>
+          <div style="font-size:8px;color:#92400e;margin-top:4px">※障害年金（収入の約30%）を考慮済み</div>
         </div>
-        <div style="background:#fff1f2;border:1px solid #fda4af;border-radius:8px;padding:10px">
-          <div style="font-size:10px;font-weight:800;color:#9f1239;margin-bottom:6px">💐 死亡時（団信${hasDansin?"あり":"なし"}）</div>
-          <div style="font-size:13px;font-weight:800;color:${deathShort>0?"#dc2626":"#16a34a"}">${deathShort>0?`月${deathShort}万円不足`:"不足なし"}</div>
-          <div style="font-size:9px;color:#9f1239;margin-top:4px">遺族年金：月${izokuM}万円　総不足：${deathTotal>0?formatMan(deathTotal):"-"}</div>
+
+        <!-- 死亡 -->
+        <div class="risk-box" style="background:#fff1f2;border:1px solid #fda4af">
+          <div style="font-size:11px;font-weight:800;color:#9f1239;margin-bottom:8px">💐 死亡保険・収入保障保険（団信${hasDansin?"あり":"なし"}）</div>
+          <div class="grid3" style="margin-bottom:8px">
+            <div class="card" style="background:white">
+              <div class="lbl">遺族年金（月）</div>
+              <div class="val" style="color:#9f1239;font-size:13px">${izokuM}万円</div>
+            </div>
+            <div class="card" style="background:white">
+              <div class="lbl">月間不足額</div>
+              <div class="val" style="color:${deathShort>0?"#dc2626":"#16a34a"};font-size:13px">${deathShort>0?`-${deathShort}万円`:"不足なし"}</div>
+            </div>
+            <div class="card" style="background:white">
+              <div class="lbl">総不足額</div>
+              <div class="val" style="color:#1e293b;font-size:13px">${deathShort>0?`約${formatMan(Math.round(deathShort*12*deathYrs))}`:"-"}</div>
+            </div>
+          </div>
+          <!-- 死亡グラフ -->
+          <div class="svg-wrap">
+            <div style="font-size:9px;font-weight:700;color:#9f1239;text-align:center;margin-bottom:4px">死亡後の月次収支比較</div>
+            ${(()=>{
+              const exp = Math.round(expDeath*10)/10;
+              const mv = Math.max(izokuM,exp)*1.15;
+              const sc = v=>(v/mv*80);
+              const bw=52;const gap=18;const bY=100;const x1=30;const x2=x1+bw+gap;const x3=x2+bw+gap;
+              return `<svg viewBox="0 0 260 115" style="width:100%;height:auto">
+                <rect x="${x1}" y="${bY-sc(izokuM)}" width="${bw}" height="${sc(izokuM)}" rx="3" fill="#9f1239" opacity="0.8"/>
+                <text x="${x1+bw/2}" y="${bY-sc(izokuM)-3}" text-anchor="middle" font-size="8" fill="#9f1239" font-weight="700">${izokuM}万</text>
+                <text x="${x1+bw/2}" y="${bY+10}" text-anchor="middle" font-size="7" fill="#64748b">遺族年金</text>
+                <rect x="${x2}" y="${bY-sc(living)}" width="${bw}" height="${sc(living)}" rx="3" fill="#475569" opacity="0.7"/>
+                ${!hasDansin?`<rect x="${x2}" y="${bY-sc(living)-sc(monthlyLoanAmt)}" width="${bw}" height="${sc(monthlyLoanAmt)}" rx="3" fill="#f59e0b" opacity="0.7"/>`:""}
+                <text x="${x2+bw/2}" y="${bY-sc(exp)-3}" text-anchor="middle" font-size="8" fill="#1e293b" font-weight="700">${exp}万</text>
+                <text x="${x2+bw/2}" y="${bY+10}" text-anchor="middle" font-size="7" fill="#64748b">${hasDansin?"生活費":"生活費+ローン"}</text>
+                ${deathShort>0
+                  ?`<rect x="${x3}" y="${bY-sc(deathShort)}" width="${bw}" height="${sc(deathShort)}" rx="3" fill="#dc2626" opacity="0.85"/>
+                    <text x="${x3+bw/2}" y="${bY-sc(deathShort)-3}" text-anchor="middle" font-size="8" fill="#dc2626" font-weight="700">${deathShort}万/月</text>
+                    <text x="${x3+bw/2}" y="${bY+10}" text-anchor="middle" font-size="7" fill="#64748b">月間不足</text>`
+                  :`<rect x="${x3}" y="${bY-sc(Math.abs(izokuM-exp))}" width="${bw}" height="${sc(Math.abs(izokuM-exp))}" rx="3" fill="#16a34a" opacity="0.7"/>
+                    <text x="${x3+bw/2}" y="${bY-sc(Math.abs(izokuM-exp))-3}" text-anchor="middle" font-size="8" fill="#16a34a" font-weight="700">余剰あり</text>
+                    <text x="${x3+bw/2}" y="${bY+10}" text-anchor="middle" font-size="7" fill="#64748b">月間余剰</text>`}
+                <line x1="10" y1="${bY}" x2="250" y2="${bY}" stroke="#e2e8f0" stroke-width="1.5"/>
+              </svg>`;
+            })()}
+          </div>
+          <div style="font-size:8px;color:#9f1239;margin-top:4px">※${hasDansin?"団信によりローン残債は免除。":"団信なしのためローン返済継続。"}遺族厚生年金＋${children>0?"遺族基礎年金":"中高齢寡婦加算"}を考慮。</div>
         </div>
       </div>
-    </div>
 
-    <div class="section">
-      <div class="section-title">📈 資産推移（10年刻み）</div>
-      ${intervals.map(d=>{
-        const w=Math.round(Math.abs(d.資産残高)/maxVal*100);
-        const isPos=d.資産残高>=0;
-        return `<div class="bar-row">
-          <div class="bar-label">${d.age}歳</div>
-          <div class="bar-track"><div class="bar-fill" style="width:${w}%;background:${isPos?"#2563eb":"#dc2626"}"></div></div>
-          <div class="bar-val" style="color:${isPos?"#2563eb":"#dc2626"}">${formatMan(d.資産残高)}</div>
-        </div>`;
-      }).join("")}
-    </div>
-
-    <div class="section">
-      <div class="section-title">📋 入力条件</div>
-      <table>
-        <tr><td>年齢 / 定年</td><td>${age}歳 / ${retireAge}歳</td></tr>
-        <tr><td>月収（手取り）</td><td>${income}万円 ＋ボーナス${bonus}万円/年</td></tr>
-        ${hasSpouse?`<tr><td>配偶者収入</td><td>${spouseIncome}万円 ＋ボーナス${spouseBonus}万円/年（${spouseType}）</td></tr>`:""}
-        <tr><td>住宅ローン</td><td>${loanAmount}万円 / ${loanYears}年 / 金利${loanRate}%</td></tr>
-        <tr><td>現在の貯蓄</td><td>${savings}万円</td></tr>
-        <tr><td>退職金（合計）</td><td>${retirement+(hasSpouse?spouseRetirement:0)}万円</td></tr>
-        <tr><td>子ども</td><td>${children}人</td></tr>
-        <tr><td>年金受給開始</td><td>${nenkinStartAge}歳</td></tr>
-        <tr><td>インフレ率</td><td>${inflationRate}%/年</td></tr>
-      </table>
-    </div>
-
-    <div class="comment" style="background:${summary.finalAsset>0?"#eff6ff":"#fef2f2"};color:${summary.finalAsset>0?"#1e40af":"#991b1b"}">
-      ${summary.finalAsset>0
-        ?`✅ このプランでは老後まで資産がプラスを維持できる見込みです。月々${summary.monthlyLoan?.toFixed(1)}万円の返済も現在の収支から無理なく対応できます。`
-        :`⚠️ ${summary.negativeAge}歳頃に資産がマイナスになる可能性があります。保険や貯蓄の見直しで対策できます。`}
-    </div>
-    <div class="footer">
-      <span>※本シミュレーションは概算です。実際のプランニングはFPや専門家にご相談ください。</span>
-      <span>ResOne Life Simulator</span>
+      <div class="footer">
+        <span>※本シミュレーションは概算です。実際のプランニングはFPや専門家にご相談ください。</span>
+        <span>ResOne Life Simulator</span>
+      </div>
     </div>
     </body></html>`;
 
-    const w = window.open("", "_blank", "width=480,height=800");
+    const w = window.open("", "_blank", "width=520,height=900");
     if (w) {
       w.document.write(html);
       w.document.close();
     } else {
-      // ポップアップがブロックされた場合はBlobで開く
       const blob = new Blob([html], { type: "text/html;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       window.location.href = url;
