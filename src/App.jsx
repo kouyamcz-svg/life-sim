@@ -703,9 +703,10 @@ export default function LifeSimulator() {
     </div>
     </body></html>`;
 
-    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    setPdfUrl(url);
+    // 同ページのdocumentを直接書き換えて表示（Safari対応）
+    document.open();
+    document.write(html);
+    document.close();
     setPdfLoading(false);
   };
 
