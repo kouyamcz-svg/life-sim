@@ -703,10 +703,8 @@ export default function LifeSimulator() {
     </div>
     </body></html>`;
 
-    // 同ページのdocumentを直接書き換えて表示（Safari対応）
-    document.open();
-    document.write(html);
-    document.close();
+    // 画面で確認モーダルを開いてから印刷
+    setShowPreview(true);
     setPdfLoading(false);
   };
 
@@ -1269,22 +1267,15 @@ export default function LifeSimulator() {
               </p>
             </div>
 
-            {/* ボタン2つ */}
-            <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
-              <button onClick={generatePDFPreview} style={{
-                flex: 1, padding: "14px 0", borderRadius: 14, border: "2px solid #2563eb",
-                background: "white", fontSize: 13, fontWeight: 700, color: "#2563eb",
-                cursor: "pointer", fontFamily: "'Noto Sans JP', sans-serif",
-              }}>📋 画面で確認</button>
-              <button onClick={generatePDF} disabled={pdfLoading} style={{
-                flex: 1, padding: "14px 0", borderRadius: 14, border: "none",
-                background: pdfLoading ? "#e2e8f0" : "linear-gradient(135deg, #dc2626, #b91c1c)",
-                fontSize: 13, fontWeight: 800, color: pdfLoading ? "#94a3b8" : "white",
-                cursor: pdfLoading ? "not-allowed" : "pointer",
-                boxShadow: pdfLoading ? "none" : "0 4px 14px rgba(220,38,38,0.35)",
-                fontFamily: "'Noto Sans JP', sans-serif",
-              }}>{pdfLoading ? "⏳ 生成中..." : "📄 PDFで保存"}</button>
-            </div>
+            {/* ボタン */}
+            <button onClick={generatePDFPreview} style={{
+              width: "100%", marginTop: 20, padding: "16px 0", borderRadius: 14, border: "none",
+              background: "linear-gradient(135deg, #dc2626, #b91c1c)",
+              fontSize: 15, fontWeight: 800, color: "white", cursor: "pointer",
+              boxShadow: "0 4px 14px rgba(220,38,38,0.35)",
+              fontFamily: "'Noto Sans JP', sans-serif",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8
+            }}>📄 試算結果を確認・PDF保存</button>
           </div>
         );
     }
@@ -1320,6 +1311,11 @@ export default function LifeSimulator() {
                     color: "white", fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center"
                   }}>✕</button>
                 </div>
+                <button onClick={() => window.print()} style={{
+                  width: "100%", marginTop: 10, padding: "10px 0", borderRadius: 10, border: "none",
+                  background: "rgba(255,255,255,0.2)", color: "white", fontSize: 13, fontWeight: 700,
+                  cursor: "pointer", fontFamily: "'Noto Sans JP', sans-serif"
+                }}>🖨️ このページをPDFで保存</button>
                 <p style={{ margin: "10px 0 0", fontSize: 11, opacity: 0.85, background: "rgba(255,255,255,0.15)", borderRadius: 8, padding: "6px 10px", fontFamily: "'Noto Sans JP', sans-serif" }}>
                   📸 スクリーンショットで保存 または 上部メニュー「共有」からPDF出力できます
                 </p>
