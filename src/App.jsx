@@ -449,269 +449,12 @@ export default function LifeSimulator() {
   // 結果プレビューモーダル
   const [showPreview, setShowPreview] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
-
-  // プレビューと共通のデータ計算
-  const calcReportData = () => {
-    const totalNenkin = Math.round(((summary.adjMyNenkin||0) + (hasSpouse ? (summary.adjSpNenkin||0) : 0)) * 10) / 10;
-    const intervals = chartData.filter(d => (d.age - age) % 10 === 0);
-    const maxVal = Math.max(...intervals.map(d => Math.abs(d.資産残高)), 1);
-    const monthlyLoanAmt = calcMonthlyLoan();
-    const fullIncome = income + (hasSpouse ? spouseIncome : 0);
-    const expTotal = living + monthlyLoanAmt;
-    const disShort = Math.max(0, Math.round((expTotal - fullIncome * 0.3)*10)/10);
-    const disYrs = Math.max(0, retireAge - disabledAge);
-    const disTotal = Math.round(disShort * 12 * disYrs);
-    const izoku = calcIzokuNenkin(income, age, kosei_years, children);
-    const izokuM = Math.round(izoku.total/12*10)/10;
-    const expDeath = hasDansin ? living : living + monthlyLoanAmt;
-    const deathShort = Math.max(0, Math.round((expDeath - izokuM)*10)/10);
-    const deathYrs = Math.max(0, children > 0 ? 18 - (childEduSettings[0]?.currentAge||0) + (retireAge-age) : retireAge-age);
-    const deathTotal = Math.round(deathShort * 12 * deathYrs);
-    return { totalNenkin, intervals, maxVal, monthlyLoanAmt, disShort, disYrs, disTotal, izokuM, deathShort, deathYrs, deathTotal, izoku };
-  };
-
-  const generatePDF = () => {
-    setPdfLoading(true);
-    const { totalNenkin, intervals, maxVal, monthlyLoanAmt, disShort, disYrs, disTotal, izokuM, deathShort, deathYrs, deathTotal, izoku } = calcReportData();
-
-    const pageBreak = `<div style="page-break-before:always"></div>`;
-
-    const html = `<!DOCTYPE html><html lang="ja"><head>
-    <meta charset="UTF-8"/>
-    <title>ライフシミュレーション結果</title>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;800&display=swap" rel="stylesheet"/>
-    <style>
-      *{margin:0;padding:0;box-sizing:border-box}
-      body{font-family:'Noto Sans JP',sans-serif;background:white;color:#1e293b;font-size:11px}
-      @media print{.no-print{display:none} @page{margin:8mm} .page{padding:8px}}
-      .print-btn{position:fixed;bottom:16px;right:16px;background:#2563eb;color:white;border:none;padding:12px 20px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 4px 12px rgba(37,99,235,0.4);z-index:999}
-      .page{padding:16px;max-width:480px;margin:0 auto}
-      .header{background:linear-gradient(135deg,#1e3a5f,#2563eb);color:white;padding:14px 16px;border-radius:10px;margin-bottom:12px}
-      .header h1{font-size:17px;font-weight:800}
-      .header .sub{font-size:8px;opacity:0.7;letter-spacing:2px;margin-bottom:3px}
-      .header .date{font-size:9px;opacity:0.8;margin-top:2px}
-      .section{margin-bottom:14px}
-      .section-title{font-size:11px;font-weight:800;color:#475569;border-bottom:2px solid #e2e8f0;padding-bottom:3px;margin-bottom:8px}
-      .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-      .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
-      .card{border-radius:8px;padding:10px;text-align:center}
-      .card .lbl{font-size:8px;color:#64748b;margin-bottom:3px}
-      .card .val{font-size:14px;font-weight:800}
-      .bar-row{display:flex;align-items:center;gap:6px;margin-bottom:5px}
-      .bar-lbl{font-size:9px;color:#64748b;width:28px;flex-shrink:0}
-      .bar-track{flex:1;background:#e2e8f0;border-radius:3px;height:11px}
-      .bar-fill{height:11px;border-radius:3px}
-      .bar-val{font-size:9px;font-weight:700;width:52px;text-align:right;flex-shrink:0}
-      table{width:100%;border-collapse:collapse}
-      td{padding:4px 6px;font-size:9px;border-bottom:1px solid #f1f5f9}
-      td:first-child{color:#64748b;width:38%}
-      td:last-child{font-weight:700}
-      .comment{border-radius:8px;padding:10px;font-size:10px;line-height:1.7;margin-bottom:10px}
-      .footer{font-size:8px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:6px;display:flex;justify-content:space-between;margin-top:10px}
-      .risk-box{border-radius:8px;padding:10px;margin-bottom:8px}
-      .svg-wrap{background:white;border-radius:8px;padding:8px;margin-top:8px}
-    </style></head><body>
-    <button class="print-btn no-print" onclick="window.print()">🖨️ PDFとして保存</button>
-
-    <!-- ページ1 -->
-    <div class="page">
-      <div class="header">
-        <div class="sub">ResOne × ライフプランニング</div>
-        <h1>住宅購入ライフシミュレーション結果</h1>
-        <div class="date">作成日：${new Date().toLocaleDateString("ja-JP")}　　1 / 2</div>
-      </div>
-
-      <div class="section">
-        <div class="section-title">📊 試算サマリー</div>
-        <div class="grid2" style="margin-bottom:8px">
-          <div class="card" style="background:${summary.finalAsset>0?"#eff6ff":"#fef2f2"}">
-            <div class="lbl">90歳時点の資産</div>
-            <div class="val" style="color:${summary.finalAsset>0?"#2563eb":"#dc2626"}">${formatMan(summary.finalAsset)}</div>
-          </div>
-          <div class="card" style="background:#f0fdf4">
-            <div class="lbl">ピーク資産</div>
-            <div class="val" style="color:#10b981">${formatMan(summary.peakAsset)}</div>
-          </div>
-          <div class="card" style="background:#fffbeb">
-            <div class="lbl">月々のローン返済</div>
-            <div class="val" style="color:#f59e0b">${summary.monthlyLoan?.toFixed(1)}万円</div>
-          </div>
-          <div class="card" style="background:${summary.negativeAge?"#fef2f2":"#f0fdf4"}">
-            <div class="lbl">資産マイナス転落</div>
-            <div class="val" style="color:${summary.negativeAge?"#dc2626":"#16a34a"}">${summary.negativeAge?`${summary.negativeAge}歳〜`:"なし ✓"}</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="section">
-        <div class="section-title">🏛️ 年金受給額（試算）　${nenkinStartAge}歳から受給</div>
-        <div class="${hasSpouse?"grid3":"grid2"}">
-          <div class="card" style="background:#f0f9ff"><div class="lbl">ご自身</div><div class="val" style="color:#0369a1;font-size:12px">${summary.adjMyNenkin}万円/年</div></div>
-          ${hasSpouse?`<div class="card" style="background:#f0f9ff"><div class="lbl">配偶者（${spouseType}）</div><div class="val" style="color:#0369a1;font-size:12px">${summary.adjSpNenkin}万円/年</div></div>`:""}
-          <div class="card" style="background:#eff6ff"><div class="lbl">世帯合計</div><div class="val" style="color:#2563eb;font-size:12px">${totalNenkin}万円/年</div></div>
-        </div>
-      </div>
-
-      <div class="section">
-        <div class="section-title">📈 資産推移（10年刻み）</div>
-        ${intervals.map(d=>{
-          const w=Math.round(Math.abs(d.資産残高)/maxVal*100);
-          const isPos=d.資産残高>=0;
-          return `<div class="bar-row">
-            <div class="bar-lbl">${d.age}歳</div>
-            <div class="bar-track"><div class="bar-fill" style="width:${w}%;background:${isPos?"#2563eb":"#dc2626"}"></div></div>
-            <div class="bar-val" style="color:${isPos?"#2563eb":"#dc2626"}">${formatMan(d.資産残高)}</div>
-          </div>`;
-        }).join("")}
-      </div>
-
-      <div class="section">
-        <div class="section-title">📋 入力条件</div>
-        <table>
-          <tr><td>年齢 / 定年</td><td>${age}歳 / ${retireAge}歳</td></tr>
-          <tr><td>月収（手取り）</td><td>${income}万円 ＋ボーナス${bonus}万円/年</td></tr>
-          ${hasSpouse?`<tr><td>配偶者収入</td><td>${spouseIncome}万円 ＋ボーナス${spouseBonus}万円/年（${spouseType}）</td></tr>`:""}
-          <tr><td>住宅ローン</td><td>${loanAmount}万円 / ${loanYears}年 / 金利${loanRate}%</td></tr>
-          <tr><td>現在の貯蓄 / 退職金</td><td>${savings}万円 / ${retirement+(hasSpouse?spouseRetirement:0)}万円</td></tr>
-          <tr><td>子ども / 年金受給開始</td><td>${children}人 / ${nenkinStartAge}歳</td></tr>
-          <tr><td>インフレ率</td><td>${inflationRate}%/年</td></tr>
-        </table>
-      </div>
-
-      <div class="comment" style="background:${summary.finalAsset>0?"#eff6ff":"#fef2f2"};color:${summary.finalAsset>0?"#1e40af":"#991b1b"}">
-        ${summary.finalAsset>0
-          ?`✅ このプランでは老後まで資産がプラスを維持できる見込みです。月々${summary.monthlyLoan?.toFixed(1)}万円の返済も現在の収支から無理なく対応できます。`
-          :`⚠️ ${summary.negativeAge}歳頃に資産がマイナスになる可能性があります。保険や貯蓄の見直しで対策できます。`}
-      </div>
-      <div class="footer">
-        <span>※本シミュレーションは概算です。実際のプランニングはFPや専門家にご相談ください。</span>
-        <span>ResOne Life Simulator</span>
-      </div>
-    </div>
-
-    ${pageBreak}
-
-    <!-- ページ2 -->
-    <div class="page">
-      <div class="header">
-        <div class="sub">ResOne × ライフプランニング</div>
-        <h1>住宅購入ライフシミュレーション結果</h1>
-        <div class="date">作成日：${new Date().toLocaleDateString("ja-JP")}　　2 / 2</div>
-      </div>
-
-      <div class="section">
-        <div class="section-title">🛡️ 必要保障額の目安</div>
-
-        <!-- 就業不能 -->
-        <div class="risk-box" style="background:#fffbeb;border:1px solid #fde68a;margin-bottom:10px">
-          <div style="font-size:11px;font-weight:800;color:#92400e;margin-bottom:8px">🏥 就業不能・収入保障保険（${disabledAge}歳で就業不能の場合）</div>
-          <div class="grid3" style="margin-bottom:8px">
-            <div class="card" style="background:white">
-              <div class="lbl">必要月額給付</div>
-              <div class="val" style="color:#dc2626;font-size:13px">${disShort>0?`${disShort}万円`:"不要"}</div>
-            </div>
-            <div class="card" style="background:white">
-              <div class="lbl">補填期間</div>
-              <div class="val" style="color:#f59e0b;font-size:13px">${disYrs}年間</div>
-            </div>
-            <div class="card" style="background:white">
-              <div class="lbl">総不足額</div>
-              <div class="val" style="color:#1e293b;font-size:13px">${disTotal>0?`約${formatMan(disTotal)}`:"-"}</div>
-            </div>
-          </div>
-          <!-- 就業不能グラフ -->
-          <div class="svg-wrap">
-            <div style="font-size:9px;font-weight:700;color:#92400e;text-align:center;margin-bottom:4px">月次キャッシュフロー比較</div>
-            ${(()=>{
-              const mi = income+(hasSpouse?spouseIncome:0);
-              const di = Math.round(mi*0.3*10)/10;
-              const ex = Math.round((living+monthlyLoanAmt)*10)/10;
-              const mv = Math.max(mi,ex)*1.1;
-              const sc = v=>(v/mv*80);
-              const bw=52;const gap=18;const bY=100;const x1=30;const x2=x1+bw+gap;const x3=x2+bw+gap;
-              return `<svg viewBox="0 0 260 115" style="width:100%;height:auto">
-                <rect x="${x1}" y="${bY-sc(mi)}" width="${bw}" height="${sc(mi)}" rx="3" fill="#2563eb" opacity="0.85"/>
-                <text x="${x1+bw/2}" y="${bY-sc(mi)-3}" text-anchor="middle" font-size="8" fill="#1e40af" font-weight="700">${mi}万</text>
-                <text x="${x1+bw/2}" y="${bY+10}" text-anchor="middle" font-size="7" fill="#64748b">就業前収入</text>
-                <rect x="${x2}" y="${bY-sc(di)}" width="${bw}" height="${sc(di)}" rx="3" fill="#f59e0b" opacity="0.85"/>
-                ${disShort>0?`<rect x="${x2}" y="${bY-sc(di)-sc(disShort)}" width="${bw}" height="${sc(disShort)}" rx="3" fill="#dc2626" opacity="0.5"/>
-                <text x="${x2+bw/2}" y="${bY-sc(di)-sc(disShort)-3}" text-anchor="middle" font-size="7" fill="#dc2626" font-weight="700">不足${disShort}万</text>`:""}
-                <text x="${x2+bw/2}" y="${bY-sc(di)-3}" text-anchor="middle" font-size="8" fill="#92400e" font-weight="700">${di}万</text>
-                <text x="${x2+bw/2}" y="${bY+10}" text-anchor="middle" font-size="7" fill="#64748b">障害年金等</text>
-                <rect x="${x3}" y="${bY-sc(ex)}" width="${bw}" height="${sc(ex)}" rx="3" fill="#475569" opacity="0.7"/>
-                <text x="${x3+bw/2}" y="${bY-sc(ex)-3}" text-anchor="middle" font-size="8" fill="#1e293b" font-weight="700">${ex}万</text>
-                <text x="${x3+bw/2}" y="${bY+10}" text-anchor="middle" font-size="7" fill="#64748b">月間支出</text>
-                <line x1="10" y1="${bY}" x2="250" y2="${bY}" stroke="#e2e8f0" stroke-width="1.5"/>
-              </svg>`;
-            })()}
-          </div>
-          <div style="font-size:8px;color:#92400e;margin-top:4px">※障害年金（収入の約30%）を考慮済み</div>
-        </div>
-
-        <!-- 死亡 -->
-        <div class="risk-box" style="background:#fff1f2;border:1px solid #fda4af">
-          <div style="font-size:11px;font-weight:800;color:#9f1239;margin-bottom:8px">💐 死亡保険・収入保障保険（団信${hasDansin?"あり":"なし"}）</div>
-          <div class="grid3" style="margin-bottom:8px">
-            <div class="card" style="background:white">
-              <div class="lbl">遺族年金（月）</div>
-              <div class="val" style="color:#9f1239;font-size:13px">${izokuM}万円</div>
-            </div>
-            <div class="card" style="background:white">
-              <div class="lbl">月間不足額</div>
-              <div class="val" style="color:${deathShort>0?"#dc2626":"#16a34a"};font-size:13px">${deathShort>0?`-${deathShort}万円`:"不足なし"}</div>
-            </div>
-            <div class="card" style="background:white">
-              <div class="lbl">総不足額</div>
-              <div class="val" style="color:#1e293b;font-size:13px">${deathShort>0?`約${formatMan(Math.round(deathShort*12*deathYrs))}`:"-"}</div>
-            </div>
-          </div>
-          <!-- 死亡グラフ -->
-          <div class="svg-wrap">
-            <div style="font-size:9px;font-weight:700;color:#9f1239;text-align:center;margin-bottom:4px">死亡後の月次収支比較</div>
-            ${(()=>{
-              const exp = Math.round(expDeath*10)/10;
-              const mv = Math.max(izokuM,exp)*1.15;
-              const sc = v=>(v/mv*80);
-              const bw=52;const gap=18;const bY=100;const x1=30;const x2=x1+bw+gap;const x3=x2+bw+gap;
-              return `<svg viewBox="0 0 260 115" style="width:100%;height:auto">
-                <rect x="${x1}" y="${bY-sc(izokuM)}" width="${bw}" height="${sc(izokuM)}" rx="3" fill="#9f1239" opacity="0.8"/>
-                <text x="${x1+bw/2}" y="${bY-sc(izokuM)-3}" text-anchor="middle" font-size="8" fill="#9f1239" font-weight="700">${izokuM}万</text>
-                <text x="${x1+bw/2}" y="${bY+10}" text-anchor="middle" font-size="7" fill="#64748b">遺族年金</text>
-                <rect x="${x2}" y="${bY-sc(living)}" width="${bw}" height="${sc(living)}" rx="3" fill="#475569" opacity="0.7"/>
-                ${!hasDansin?`<rect x="${x2}" y="${bY-sc(living)-sc(monthlyLoanAmt)}" width="${bw}" height="${sc(monthlyLoanAmt)}" rx="3" fill="#f59e0b" opacity="0.7"/>`:""}
-                <text x="${x2+bw/2}" y="${bY-sc(exp)-3}" text-anchor="middle" font-size="8" fill="#1e293b" font-weight="700">${exp}万</text>
-                <text x="${x2+bw/2}" y="${bY+10}" text-anchor="middle" font-size="7" fill="#64748b">${hasDansin?"生活費":"生活費+ローン"}</text>
-                ${deathShort>0
-                  ?`<rect x="${x3}" y="${bY-sc(deathShort)}" width="${bw}" height="${sc(deathShort)}" rx="3" fill="#dc2626" opacity="0.85"/>
-                    <text x="${x3+bw/2}" y="${bY-sc(deathShort)-3}" text-anchor="middle" font-size="8" fill="#dc2626" font-weight="700">${deathShort}万/月</text>
-                    <text x="${x3+bw/2}" y="${bY+10}" text-anchor="middle" font-size="7" fill="#64748b">月間不足</text>`
-                  :`<rect x="${x3}" y="${bY-sc(Math.abs(izokuM-exp))}" width="${bw}" height="${sc(Math.abs(izokuM-exp))}" rx="3" fill="#16a34a" opacity="0.7"/>
-                    <text x="${x3+bw/2}" y="${bY-sc(Math.abs(izokuM-exp))-3}" text-anchor="middle" font-size="8" fill="#16a34a" font-weight="700">余剰あり</text>
-                    <text x="${x3+bw/2}" y="${bY+10}" text-anchor="middle" font-size="7" fill="#64748b">月間余剰</text>`}
-                <line x1="10" y1="${bY}" x2="250" y2="${bY}" stroke="#e2e8f0" stroke-width="1.5"/>
-              </svg>`;
-            })()}
-          </div>
-          <div style="font-size:8px;color:#9f1239;margin-top:4px">※${hasDansin?"団信によりローン残債は免除。":"団信なしのためローン返済継続。"}遺族厚生年金＋${children>0?"遺族基礎年金":"中高齢寡婦加算"}を考慮。</div>
-        </div>
-      </div>
-
-      <div class="footer">
-        <span>※本シミュレーションは概算です。実際のプランニングはFPや専門家にご相談ください。</span>
-        <span>ResOne Life Simulator</span>
-      </div>
-    </div>
-    </body></html>`;
-
   const [printMode, setPrintMode] = useState(false);
 
   const generatePDF = () => {
     setPrintMode(true);
-    // 少し待ってから印刷ダイアログを表示
-    setTimeout(() => window.print(), 500);
   };
 
-  const [pdfUrl, setPdfUrl] = useState(null);
   const generatePDFPreview = () => setShowPreview(true);
 
   const renderStep = () => {
@@ -1277,107 +1020,118 @@ export default function LifeSimulator() {
                 background: "white", fontSize: 13, fontWeight: 700, color: "#2563eb",
                 cursor: "pointer", fontFamily: "'Noto Sans JP', sans-serif",
               }}>📋 画面で確認</button>
-              <button onClick={generatePDF} style={{
+              <button onClick={generatePDF} disabled={pdfLoading} style={{
                 flex: 1, padding: "14px 0", borderRadius: 14, border: "none",
-                background: "linear-gradient(135deg, #dc2626, #b91c1c)",
-                fontSize: 13, fontWeight: 800, color: "white", cursor: "pointer",
-                boxShadow: "0 4px 14px rgba(220,38,38,0.35)",
+                background: pdfLoading ? "#e2e8f0" : "linear-gradient(135deg, #dc2626, #b91c1c)",
+                fontSize: 13, fontWeight: 800, color: pdfLoading ? "#94a3b8" : "white",
+                cursor: pdfLoading ? "not-allowed" : "pointer",
+                boxShadow: pdfLoading ? "none" : "0 4px 14px rgba(220,38,38,0.35)",
                 fontFamily: "'Noto Sans JP', sans-serif",
-              }}>📄 PDFで保存</button>
+              }}>{pdfLoading ? "⏳ 生成中..." : "📄 PDFで保存"}</button>
             </div>
           </div>
         );
     }
   };
 
-  // 印刷モード時の表示
+  // 印刷モード：アプリUIを消して印刷専用画面を表示
   if (printMode) {
-    const { totalNenkin, intervals, maxVal, monthlyLoanAmt, disShort, disYrs, disTotal, izokuM, deathShort, deathYrs, deathTotal } = calcReportData();
+    const totalNenkin = Math.round(((summary.adjMyNenkin||0) + (hasSpouse?(summary.adjSpNenkin||0):0))*10)/10;
+    const intervals = chartData.filter(d => (d.age - age) % 10 === 0);
+    const maxVal = Math.max(...intervals.map(d => Math.abs(d.資産残高)), 1);
+    const monthlyLoanAmt = calcMonthlyLoan();
+    const fullIncome = income + (hasSpouse ? spouseIncome : 0);
+    const expTotal = living + monthlyLoanAmt;
+    const disShort = Math.max(0, Math.round((expTotal - fullIncome * 0.3)*10)/10);
+    const disYrs = Math.max(0, retireAge - disabledAge);
+    const disTotal = Math.round(disShort * 12 * disYrs);
+    const izoku = calcIzokuNenkin(income, age, kosei_years, children);
+    const izokuM = Math.round(izoku.total/12*10)/10;
+    const expDeath = hasDansin ? living : living + monthlyLoanAmt;
+    const deathShort = Math.max(0, Math.round((expDeath - izokuM)*10)/10);
+    const deathYrs = Math.max(0, children > 0 ? 18-(childEduSettings[0]?.currentAge||0)+(retireAge-age) : retireAge-age);
+    const deathTotal = Math.round(deathShort * 12 * deathYrs);
+    const F = (v) => { if(Math.abs(v)>=10000) return (v/10000).toFixed(0)+'億円'; return v.toFixed(0)+'万円'; };
     return (
-      <div style={{ fontFamily: "'Noto Sans JP', sans-serif", background: "white", color: "#1e293b", padding: 16 }}>
-        <style>{`@media print { .no-print { display: none !important; } * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } @page { margin: 8mm; size: A4; } }`}</style>
-        <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;800&display=swap" rel="stylesheet" />
-        <div className="no-print" style={{ display: "flex", gap: 10, marginBottom: 16 }}>
-          <button onClick={() => setPrintMode(false)} style={{ flex: 1, padding: "12px 0", borderRadius: 12, border: "2px solid #e2e8f0", background: "white", fontSize: 14, fontWeight: 700, color: "#64748b", cursor: "pointer", fontFamily: "'Noto Sans JP', sans-serif" }}>← 戻る</button>
-          <button onClick={() => window.print()} style={{ flex: 2, padding: "12px 0", borderRadius: 12, border: "none", background: "linear-gradient(135deg, #2563eb, #1d4ed8)", fontSize: 14, fontWeight: 800, color: "white", cursor: "pointer", fontFamily: "'Noto Sans JP', sans-serif" }}>🖨️ PDFとして保存</button>
+      <div style={{fontFamily:"'Noto Sans JP',sans-serif",background:"white",color:"#1e293b",padding:16,minHeight:"100vh"}}>
+        <style>{`@media print{.np{display:none!important}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}@page{margin:8mm;size:A4}}`}</style>
+        <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;800&display=swap" rel="stylesheet"/>
+        <div className="np" style={{display:"flex",gap:10,marginBottom:16}}>
+          <button onClick={()=>setPrintMode(false)} style={{flex:1,padding:"12px 0",borderRadius:12,border:"2px solid #e2e8f0",background:"white",fontSize:14,fontWeight:700,color:"#64748b",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>← 戻る</button>
+          <button onClick={()=>window.print()} style={{flex:2,padding:"12px 0",borderRadius:12,border:"none",background:"linear-gradient(135deg,#2563eb,#1d4ed8)",fontSize:14,fontWeight:800,color:"white",cursor:"pointer",fontFamily:"'Noto Sans JP',sans-serif"}}>🖨️ PDFとして保存</button>
         </div>
-        <div style={{ background: "linear-gradient(135deg, #1e3a5f, #2563eb)", color: "white", padding: "14px 16px", borderRadius: 10, marginBottom: 14 }}>
-          <p style={{ margin: "0 0 2px", fontSize: 8, opacity: 0.7, letterSpacing: 2, fontFamily: "'Noto Sans JP', sans-serif" }}>ResOne × ライフプランニング</p>
-          <h1 style={{ margin: 0, fontSize: 17, fontWeight: 800, fontFamily: "'Noto Sans JP', sans-serif" }}>住宅購入ライフシミュレーション結果</h1>
-          <p style={{ margin: "2px 0 0", fontSize: 9, opacity: 0.8, fontFamily: "'Noto Sans JP', sans-serif" }}>作成日：{new Date().toLocaleDateString("ja-JP")}</p>
+        <div style={{background:"linear-gradient(135deg,#1e3a5f,#2563eb)",color:"white",padding:"14px 16px",borderRadius:10,marginBottom:14}}>
+          <p style={{margin:"0 0 2px",fontSize:8,opacity:0.7,letterSpacing:2,fontFamily:"'Noto Sans JP',sans-serif"}}>ResOne × ライフプランニング</p>
+          <h1 style={{margin:0,fontSize:17,fontWeight:800,fontFamily:"'Noto Sans JP',sans-serif"}}>住宅購入ライフシミュレーション結果</h1>
+          <p style={{margin:"2px 0 0",fontSize:9,opacity:0.8,fontFamily:"'Noto Sans JP',sans-serif"}}>作成日：{new Date().toLocaleDateString("ja-JP")}</p>
         </div>
-        {/* サマリー */}
-        <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 800, color: "#475569", borderBottom: "2px solid #e2e8f0", paddingBottom: 3, fontFamily: "'Noto Sans JP', sans-serif" }}>📊 試算サマリー</p>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
-          {[{ label: "90歳時点の資産", value: formatMan(summary.finalAsset), bg: summary.finalAsset > 0 ? "#eff6ff" : "#fef2f2", color: summary.finalAsset > 0 ? "#2563eb" : "#dc2626" }, { label: "ピーク資産", value: formatMan(summary.peakAsset), bg: "#f0fdf4", color: "#10b981" }, { label: "月々のローン返済", value: `${summary.monthlyLoan?.toFixed(1)}万円`, bg: "#fffbeb", color: "#f59e0b" }, { label: "資産マイナス転落", value: summary.negativeAge ? `${summary.negativeAge}歳〜` : "なし ✓", bg: summary.negativeAge ? "#fef2f2" : "#f0fdf4", color: summary.negativeAge ? "#dc2626" : "#16a34a" }].map((c, i) => (
-            <div key={i} style={{ background: c.bg, borderRadius: 8, padding: "10px 12px", textAlign: "center" }}>
-              <p style={{ margin: "0 0 3px", fontSize: 8, color: "#64748b", fontFamily: "'Noto Sans JP', sans-serif" }}>{c.label}</p>
-              <p style={{ margin: 0, fontSize: 15, fontWeight: 800, color: c.color, fontFamily: "'Noto Sans JP', sans-serif" }}>{c.value}</p>
+        <p style={{margin:"0 0 8px",fontSize:11,fontWeight:800,color:"#475569",borderBottom:"2px solid #e2e8f0",paddingBottom:3,fontFamily:"'Noto Sans JP',sans-serif"}}>📊 試算サマリー</p>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+          {[{l:"90歳時点の資産",v:F(summary.finalAsset),bg:summary.finalAsset>0?"#eff6ff":"#fef2f2",c:summary.finalAsset>0?"#2563eb":"#dc2626"},{l:"ピーク資産",v:F(summary.peakAsset),bg:"#f0fdf4",c:"#10b981"},{l:"月々のローン返済",v:`${summary.monthlyLoan?.toFixed(1)}万円`,bg:"#fffbeb",c:"#f59e0b"},{l:"資産マイナス転落",v:summary.negativeAge?`${summary.negativeAge}歳〜`:"なし ✓",bg:summary.negativeAge?"#fef2f2":"#f0fdf4",c:summary.negativeAge?"#dc2626":"#16a34a"}].map((x,i)=>(
+            <div key={i} style={{background:x.bg,borderRadius:8,padding:"10px 12px",textAlign:"center"}}>
+              <p style={{margin:"0 0 3px",fontSize:8,color:"#64748b",fontFamily:"'Noto Sans JP',sans-serif"}}>{x.l}</p>
+              <p style={{margin:0,fontSize:15,fontWeight:800,color:x.c,fontFamily:"'Noto Sans JP',sans-serif"}}>{x.v}</p>
             </div>
           ))}
         </div>
-        {/* 年金 */}
-        <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 800, color: "#475569", borderBottom: "2px solid #e2e8f0", paddingBottom: 3, fontFamily: "'Noto Sans JP', sans-serif" }}>🏛️ 年金受給額（{nenkinStartAge}歳〜）</p>
-        <div style={{ display: "grid", gridTemplateColumns: hasSpouse ? "1fr 1fr 1fr" : "1fr 1fr", gap: 6, marginBottom: 14 }}>
-          {[{ label: "ご自身", value: `${summary.adjMyNenkin}万円/年` }, ...(hasSpouse ? [{ label: `配偶者（${spouseType}）`, value: `${summary.adjSpNenkin}万円/年` }] : []), { label: "世帯合計", value: `${totalNenkin}万円/年` }].map((n, i) => (
-            <div key={i} style={{ background: "#f0f9ff", borderRadius: 8, padding: "10px 8px", textAlign: "center" }}>
-              <p style={{ margin: "0 0 3px", fontSize: 8, color: "#64748b", fontFamily: "'Noto Sans JP', sans-serif" }}>{n.label}</p>
-              <p style={{ margin: 0, fontSize: 13, fontWeight: 800, color: "#0369a1", fontFamily: "'Noto Sans JP', sans-serif" }}>{n.value}</p>
+        <p style={{margin:"0 0 8px",fontSize:11,fontWeight:800,color:"#475569",borderBottom:"2px solid #e2e8f0",paddingBottom:3,fontFamily:"'Noto Sans JP',sans-serif"}}>🏛️ 年金受給額（{nenkinStartAge}歳〜）</p>
+        <div style={{display:"grid",gridTemplateColumns:hasSpouse?"1fr 1fr 1fr":"1fr 1fr",gap:6,marginBottom:14}}>
+          {[{l:"ご自身",v:`${summary.adjMyNenkin}万円/年`},...(hasSpouse?[{l:`配偶者（${spouseType}）`,v:`${summary.adjSpNenkin}万円/年`}]:[]),{l:"世帯合計",v:`${totalNenkin}万円/年`}].map((n,i)=>(
+            <div key={i} style={{background:"#f0f9ff",borderRadius:8,padding:"10px 8px",textAlign:"center"}}>
+              <p style={{margin:"0 0 3px",fontSize:8,color:"#64748b",fontFamily:"'Noto Sans JP',sans-serif"}}>{n.l}</p>
+              <p style={{margin:0,fontSize:13,fontWeight:800,color:"#0369a1",fontFamily:"'Noto Sans JP',sans-serif"}}>{n.v}</p>
             </div>
           ))}
         </div>
-        {/* 資産推移 */}
-        <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 800, color: "#475569", borderBottom: "2px solid #e2e8f0", paddingBottom: 3, fontFamily: "'Noto Sans JP', sans-serif" }}>📈 資産推移（10年刻み）</p>
-        <div style={{ marginBottom: 14 }}>
-          {intervals.map((d, i) => { const w = Math.round(Math.abs(d.資産残高) / maxVal * 100); const isPos = d.資産残高 >= 0; return (<div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}><span style={{ fontSize: 9, color: "#64748b", width: 28, flexShrink: 0, fontFamily: "'Noto Sans JP', sans-serif" }}>{d.age}歳</span><div style={{ flex: 1, background: "#e2e8f0", borderRadius: 3, height: 11 }}><div style={{ width: `${w}%`, height: 11, background: isPos ? "#2563eb" : "#dc2626", borderRadius: 3 }} /></div><span style={{ fontSize: 9, fontWeight: 700, color: isPos ? "#2563eb" : "#dc2626", width: 52, textAlign: "right", flexShrink: 0, fontFamily: "'Noto Sans JP', sans-serif" }}>{formatMan(d.資産残高)}</span></div>); })}
+        <p style={{margin:"0 0 8px",fontSize:11,fontWeight:800,color:"#475569",borderBottom:"2px solid #e2e8f0",paddingBottom:3,fontFamily:"'Noto Sans JP',sans-serif"}}>📈 資産推移（10年刻み）</p>
+        <div style={{marginBottom:14}}>
+          {intervals.map((d,i)=>{const w=Math.round(Math.abs(d.資産残高)/maxVal*100);const p=d.資産残高>=0;return(<div key={i} style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}><span style={{fontSize:9,color:"#64748b",width:28,flexShrink:0,fontFamily:"'Noto Sans JP',sans-serif"}}>{d.age}歳</span><div style={{flex:1,background:"#e2e8f0",borderRadius:3,height:11}}><div style={{width:`${w}%`,height:11,background:p?"#2563eb":"#dc2626",borderRadius:3}}/></div><span style={{fontSize:9,fontWeight:700,color:p?"#2563eb":"#dc2626",width:52,textAlign:"right",flexShrink:0,fontFamily:"'Noto Sans JP',sans-serif"}}>{F(d.資産残高)}</span></div>);})}
         </div>
-        {/* 入力条件 */}
-        <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 800, color: "#475569", borderBottom: "2px solid #e2e8f0", paddingBottom: 3, fontFamily: "'Noto Sans JP', sans-serif" }}>📋 入力条件</p>
-        <div style={{ background: "#f8fafc", borderRadius: 8, padding: 10, marginBottom: 14 }}>
-          {[["年齢 / 定年", `${age}歳 / ${retireAge}歳`], ["月収（手取り）", `${income}万円 ＋ボーナス${bonus}万円/年`], ...(hasSpouse ? [["配偶者収入", `${spouseIncome}万円 ＋ボーナス${spouseBonus}万円/年（${spouseType}）`]] : []), ["住宅ローン", `${loanAmount}万円 / ${loanYears}年 / ${loanRate}%`], ["現在の貯蓄 / 退職金", `${savings}万円 / ${retirement + (hasSpouse ? spouseRetirement : 0)}万円`], ["子ども / 年金受給開始", `${children}人 / ${nenkinStartAge}歳`], ["インフレ率", `${inflationRate}%/年`]].map(([label, val], i) => (
-            <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: "1px solid #e2e8f0" }}>
-              <span style={{ fontSize: 9, color: "#64748b", fontFamily: "'Noto Sans JP', sans-serif" }}>{label}</span>
-              <span style={{ fontSize: 9, fontWeight: 700, color: "#1e293b", fontFamily: "'Noto Sans JP', sans-serif" }}>{val}</span>
+        <p style={{margin:"0 0 8px",fontSize:11,fontWeight:800,color:"#475569",borderBottom:"2px solid #e2e8f0",paddingBottom:3,fontFamily:"'Noto Sans JP',sans-serif"}}>📋 入力条件</p>
+        <div style={{background:"#f8fafc",borderRadius:8,padding:10,marginBottom:14}}>
+          {[["年齢 / 定年",`${age}歳 / ${retireAge}歳`],["月収（手取り）",`${income}万円 ＋ボーナス${bonus}万円/年`],...(hasSpouse?[["配偶者収入",`${spouseIncome}万円 ＋ボーナス${spouseBonus}万円/年（${spouseType}）`]]:[]),["住宅ローン",`${loanAmount}万円 / ${loanYears}年 / ${loanRate}%`],["現在の貯蓄 / 退職金",`${savings}万円 / ${retirement+(hasSpouse?spouseRetirement:0)}万円`],["子ども / 年金受給開始",`${children}人 / ${nenkinStartAge}歳`],["インフレ率",`${inflationRate}%/年`]].map(([l,v],i)=>(
+            <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #e2e8f0"}}>
+              <span style={{fontSize:9,color:"#64748b",fontFamily:"'Noto Sans JP',sans-serif"}}>{l}</span>
+              <span style={{fontSize:9,fontWeight:700,color:"#1e293b",fontFamily:"'Noto Sans JP',sans-serif"}}>{v}</span>
             </div>
           ))}
         </div>
-        {/* 総評 */}
-        <div style={{ borderRadius: 8, padding: 10, marginBottom: 14, background: summary.finalAsset > 0 ? "#eff6ff" : "#fef2f2" }}>
-          <p style={{ margin: 0, fontSize: 10, color: summary.finalAsset > 0 ? "#1e40af" : "#991b1b", lineHeight: 1.7, fontFamily: "'Noto Sans JP', sans-serif" }}>{summary.finalAsset > 0 ? `✅ このプランでは老後まで資産がプラスを維持できる見込みです。月々${summary.monthlyLoan?.toFixed(1)}万円の返済も現在の収支から無理なく対応できます。` : `⚠️ ${summary.negativeAge}歳頃に資産がマイナスになる可能性があります。保険や貯蓄の見直しで対策できます。`}</p>
+        <div style={{borderRadius:8,padding:10,marginBottom:14,background:summary.finalAsset>0?"#eff6ff":"#fef2f2"}}>
+          <p style={{margin:0,fontSize:10,color:summary.finalAsset>0?"#1e40af":"#991b1b",lineHeight:1.7,fontFamily:"'Noto Sans JP',sans-serif"}}>{summary.finalAsset>0?`✅ このプランでは老後まで資産がプラスを維持できる見込みです。月々${summary.monthlyLoan?.toFixed(1)}万円の返済も現在の収支から無理なく対応できます。`:`⚠️ ${summary.negativeAge}歳頃に資産がマイナスになる可能性があります。保険や貯蓄の見直しで対策できます。`}</p>
         </div>
-        {/* 必要保障額 */}
-        <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 800, color: "#475569", borderBottom: "2px solid #e2e8f0", paddingBottom: 3, fontFamily: "'Noto Sans JP', sans-serif" }}>🛡️ 必要保障額の目安</p>
-        <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: 10, marginBottom: 8 }}>
-          <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 800, color: "#92400e", fontFamily: "'Noto Sans JP', sans-serif" }}>🏥 就業不能（{disabledAge}歳）</p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
-            {[["必要月額給付", disShort > 0 ? `${disShort}万円` : "不要", "#dc2626"], ["補填期間", `${disYrs}年間`, "#f59e0b"], ["総不足額", disTotal > 0 ? `約${formatMan(disTotal)}` : "-", "#1e293b"]].map(([l, v, c], i) => (
-              <div key={i} style={{ background: "white", borderRadius: 6, padding: "8px 6px", textAlign: "center" }}>
-                <p style={{ margin: "0 0 2px", fontSize: 8, color: "#64748b", fontFamily: "'Noto Sans JP', sans-serif" }}>{l}</p>
-                <p style={{ margin: 0, fontSize: 13, fontWeight: 800, color: c, fontFamily: "'Noto Sans JP', sans-serif" }}>{v}</p>
+        <p style={{margin:"0 0 8px",fontSize:11,fontWeight:800,color:"#475569",borderBottom:"2px solid #e2e8f0",paddingBottom:3,fontFamily:"'Noto Sans JP',sans-serif"}}>🛡️ 必要保障額の目安</p>
+        <div style={{background:"#fffbeb",border:"1px solid #fde68a",borderRadius:8,padding:10,marginBottom:8}}>
+          <p style={{margin:"0 0 8px",fontSize:11,fontWeight:800,color:"#92400e",fontFamily:"'Noto Sans JP',sans-serif"}}>🏥 就業不能（{disabledAge}歳）</p>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+            {[["必要月額給付",disShort>0?`${disShort}万円`:"不要","#dc2626"],["補填期間",`${disYrs}年間`,"#f59e0b"],["総不足額",disTotal>0?`約${F(disTotal)}`:"-","#1e293b"]].map(([l,v,c],i)=>(
+              <div key={i} style={{background:"white",borderRadius:6,padding:"8px 6px",textAlign:"center"}}>
+                <p style={{margin:"0 0 2px",fontSize:8,color:"#64748b",fontFamily:"'Noto Sans JP',sans-serif"}}>{l}</p>
+                <p style={{margin:0,fontSize:13,fontWeight:800,color:c,fontFamily:"'Noto Sans JP',sans-serif"}}>{v}</p>
               </div>
             ))}
           </div>
-          <p style={{ margin: "6px 0 0", fontSize: 8, color: "#92400e", fontFamily: "'Noto Sans JP', sans-serif" }}>※障害年金（収入の約30%）を考慮済み</p>
+          <p style={{margin:"6px 0 0",fontSize:8,color:"#92400e",fontFamily:"'Noto Sans JP',sans-serif"}}>※障害年金（収入の約30%）を考慮済み</p>
         </div>
-        <div style={{ background: "#fff1f2", border: "1px solid #fda4af", borderRadius: 8, padding: 10, marginBottom: 14 }}>
-          <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 800, color: "#9f1239", fontFamily: "'Noto Sans JP', sans-serif" }}>💐 死亡保険（団信{hasDansin ? "あり" : "なし"}）</p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
-            {[["遺族年金（月）", `${izokuM}万円`, "#9f1239"], ["月間不足額", deathShort > 0 ? `-${deathShort}万円` : "不足なし", deathShort > 0 ? "#dc2626" : "#16a34a"], ["総不足額", deathTotal > 0 ? `約${formatMan(deathTotal)}` : "-", "#1e293b"]].map(([l, v, c], i) => (
-              <div key={i} style={{ background: "white", borderRadius: 6, padding: "8px 6px", textAlign: "center" }}>
-                <p style={{ margin: "0 0 2px", fontSize: 8, color: "#64748b", fontFamily: "'Noto Sans JP', sans-serif" }}>{l}</p>
-                <p style={{ margin: 0, fontSize: 13, fontWeight: 800, color: c, fontFamily: "'Noto Sans JP', sans-serif" }}>{v}</p>
+        <div style={{background:"#fff1f2",border:"1px solid #fda4af",borderRadius:8,padding:10,marginBottom:14}}>
+          <p style={{margin:"0 0 8px",fontSize:11,fontWeight:800,color:"#9f1239",fontFamily:"'Noto Sans JP',sans-serif"}}>💐 死亡保険（団信{hasDansin?"あり":"なし"}）</p>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+            {[["遺族年金（月）",`${izokuM}万円`,"#9f1239"],["月間不足額",deathShort>0?`-${deathShort}万円`:"不足なし",deathShort>0?"#dc2626":"#16a34a"],["総不足額",deathTotal>0?`約${F(deathTotal)}`:"-","#1e293b"]].map(([l,v,c],i)=>(
+              <div key={i} style={{background:"white",borderRadius:6,padding:"8px 6px",textAlign:"center"}}>
+                <p style={{margin:"0 0 2px",fontSize:8,color:"#64748b",fontFamily:"'Noto Sans JP',sans-serif"}}>{l}</p>
+                <p style={{margin:0,fontSize:13,fontWeight:800,color:c,fontFamily:"'Noto Sans JP',sans-serif"}}>{v}</p>
               </div>
             ))}
           </div>
-          <p style={{ margin: "6px 0 0", fontSize: 8, color: "#9f1239", fontFamily: "'Noto Sans JP', sans-serif" }}>※{hasDansin ? "団信によりローン残債は免除。" : "団信なしのためローン返済継続。"}遺族厚生年金＋{children > 0 ? "遺族基礎年金" : "中高齢寡婦加算"}を考慮。</p>
+          <p style={{margin:"6px 0 0",fontSize:8,color:"#9f1239",fontFamily:"'Noto Sans JP',sans-serif"}}>※{hasDansin?"団信によりローン残債は免除。":"団信なしのためローン返済継続。"}遺族厚生年金＋{children>0?"遺族基礎年金":"中高齢寡婦加算"}を考慮。</p>
         </div>
-        <div style={{ fontSize: 8, color: "#94a3b8", borderTop: "1px solid #e2e8f0", paddingTop: 6, display: "flex", justifyContent: "space-between", fontFamily: "'Noto Sans JP', sans-serif" }}>
+        <div style={{fontSize:8,color:"#94a3b8",borderTop:"1px solid #e2e8f0",paddingTop:6,display:"flex",justifyContent:"space-between",fontFamily:"'Noto Sans JP',sans-serif"}}>
           <span>※本シミュレーションは概算です。実際のプランニングはFPや専門家にご相談ください。</span>
           <span>ResOne Life Simulator</span>
         </div>
       </div>
     );
   }
+
 
   return (
     <div style={{
@@ -1394,7 +1148,7 @@ export default function LifeSimulator() {
         const intervals = chartData.filter(d => (d.age - age) % 10 === 0);
         const maxVal = Math.max(...intervals.map(d => Math.abs(d.資産残高)), 1);
         return (
-          <div data-print="modal" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, overflowY: "auto" }}>
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, overflowY: "auto" }}>
             <div style={{ background: "white", margin: "0 auto", maxWidth: 480, minHeight: "100vh" }}>
               {/* モーダルヘッダー */}
               <div style={{ background: "linear-gradient(135deg, #1e3a5f, #2563eb)", padding: "16px 20px", color: "white", position: "sticky", top: 0, zIndex: 10 }}>
@@ -1404,32 +1158,11 @@ export default function LifeSimulator() {
                     <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800, fontFamily: "'Noto Sans JP', sans-serif" }}>試算結果レポート</h2>
                     <p style={{ margin: "2px 0 0", fontSize: 10, opacity: 0.8, fontFamily: "'Noto Sans JP', sans-serif" }}>{new Date().toLocaleDateString("ja-JP")} 作成</p>
                   </div>
-                  <button data-no-print onClick={() => setShowPreview(false)} style={{
+                  <button onClick={() => setShowPreview(false)} style={{
                     width: 40, height: 40, borderRadius: "50%", border: "none", background: "rgba(255,255,255,0.2)",
                     color: "white", fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center"
                   }}>✕</button>
                 </div>
-                <button onClick={() => {
-                  // 印刷専用スタイルを動的に挿入
-                  const style = document.createElement('style');
-                  style.id = 'print-style';
-                  style.innerHTML = `
-                    @media print {
-                      body > div:first-child > * { display: none !important; }
-                      body > div:first-child > div[data-print="modal"] { display: block !important; position: static !important; background: white !important; overflow: visible !important; }
-                      body > div:first-child > div[data-print="modal"] > div { max-width: 100% !important; min-height: auto !important; }
-                      [data-no-print] { display: none !important; }
-                      * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-                    }
-                  `;
-                  document.head.appendChild(style);
-                  window.print();
-                  setTimeout(() => { const s = document.getElementById('print-style'); if(s) s.remove(); }, 1000);
-                }} style={{
-                  width: "100%", marginTop: 10, padding: "10px 0", borderRadius: 10, border: "none",
-                  background: "rgba(255,255,255,0.2)", color: "white", fontSize: 13, fontWeight: 700,
-                  cursor: "pointer", fontFamily: "'Noto Sans JP', sans-serif"
-                }}>🖨️ このページをPDFで保存</button>
                 <p style={{ margin: "10px 0 0", fontSize: 11, opacity: 0.85, background: "rgba(255,255,255,0.15)", borderRadius: 8, padding: "6px 10px", fontFamily: "'Noto Sans JP', sans-serif" }}>
                   📸 スクリーンショットで保存 または 上部メニュー「共有」からPDF出力できます
                 </p>
@@ -1703,24 +1436,7 @@ export default function LifeSimulator() {
         );
       })()}
 
-      {/* PDF iframeモーダル */}
-      {pdfUrl && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 2000, display: "flex", flexDirection: "column" }}>
-          <div style={{ background: "#1e3a5f", padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ color: "white", fontWeight: 700, fontSize: 14, fontFamily: "'Noto Sans JP', sans-serif" }}>📄 試算結果レポート</span>
-            <div style={{ display: "flex", gap: 8 }}>
-              <a href={pdfUrl} download={`LifeSim_${age}歳_${new Date().toLocaleDateString("ja-JP").replace(/\//g,"-")}.html`}
-                style={{ background: "#2563eb", color: "white", border: "none", padding: "8px 14px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", textDecoration: "none", fontFamily: "'Noto Sans JP', sans-serif" }}>
-                ⬇️ 保存
-              </a>
-              <button onClick={() => { URL.revokeObjectURL(pdfUrl); setPdfUrl(null); }} style={{
-                background: "rgba(255,255,255,0.2)", color: "white", border: "none", padding: "8px 14px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "'Noto Sans JP', sans-serif"
-              }}>✕ 閉じる</button>
-            </div>
-          </div>
-          <iframe src={pdfUrl} style={{ flex: 1, border: "none", background: "white" }} title="PDF Preview" />
-        </div>
-      )}
+      {/* ヘッダー */}
       <div style={{
         background: "linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%)",
         padding: "20px 24px 16px",
