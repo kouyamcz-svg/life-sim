@@ -1018,84 +1018,154 @@ export default function LifeSimulator() {
             {/* 保障ギャップ分析 */}
             {(() => {
               const monthlyLoanAmt = calcMonthlyLoan();
-              // 就業不能
-              const disShort = Math.max(0, Math.round((living + monthlyLoanAmt - income * 0.3) * 10) / 10);
-              const disYrs = Math.max(0, retireAge - disabledAge);
-              const disNeed = Math.round(disShort * 12 * disYrs); // 総必要額（万円）
-              const disCover = Math.round(disInsMonthly * 12 * Math.min(disInsYears, disYrs)); // 保険カバー額
-              const disUncovered = Math.max(0, disNeed - disCover);
-              const disOverCover = Math.max(0, disCover - disNeed);
-              // 死亡
               const izoku = calcIzokuNenkin(income, age, kosei_years, children);
               const izokuM = Math.round(izoku.total / 12 * 10) / 10;
               const expDeath = hasDansin ? living : living + monthlyLoanAmt;
               const deathMonthShort = Math.max(0, expDeath - izokuM);
-              const deathYrs = Math.max(0, children > 0 ? 18 - (childEduSettings[0]?.currentAge || 0) + (retireAge - age) : retireAge - age);
-              const deathNeed = Math.round(deathMonthShort * 12 * deathYrs);
-              const deathCover = deathInsTotal;
-              const deathUncovered = Math.max(0, deathNeed - deathCover);
-              const deathOverCover = Math.max(0, deathCover - deathNeed);
+              const disMonthShort = Math.max(0, living + monthlyLoanAmt - income * 0.3);
 
-              // SVGバーグラフ描画ヘルパー
-              const BarChart = ({ need, cover, label, color, monthlyShort, yrs }) => {
-                const maxV = Math.max(need, cover, 1);
-                const needPct = need / maxV * 100;
-                const coverPct = Math.min(cover, need) / maxV * 100;
-                const uncovered = Math.max(0, need - cover);
-                const isCovered = cover >= need;
+              // 年齢ごとの必要保障額を計算
+              const coverageByAge = [];
+              for (let a = age; a <= 90; a++) {
+                const yr = a - age;
+
+                // ── 死亡必要保障額（年齢ごとに減少）──
+                // 生活費不足分を退職まで補填 + 末子独立まで教育費
+                let deathNeedAmt = 0;
+                if (a < retireAge) {
+                  const remainYrs = retireAge - a;
+                  deathNeedAmt = Math.round(deathMonthShort * 12 * remainYrs);
+                  // 子どもの教育費残額を加算
+                  for (let c = 0; c < Math.min(children, childEduSettings.length); c++) {
+                    const cs = childEduSettings[c];
+                    const childAge = (cs.currentAge || 0) + yr;
+                    if (childAge < 22) {
+                      const edu = (EDU_COSTS.elementary[cs.elementary] || 32) * Math.max(0, Math.min(6, 12 - childAge))
+                        + (EDU_COSTS.juniorHigh[cs.juniorHigh] || 49) * Math.max(0, Math.min(3, 15 - childAge))
+                        + (EDU_COSTS.highSchool[cs.highSchool] || 51) * Math.max(0, Math.min(3, 18 - childAge))
+                        + (EDU_COSTS.university[cs.university] || 82) * Math.max(0, Math.min(4, 22 - childAge));
+                      deathNeedAmt += Math.round(edu);
+                    }
+                  }
+                  deathNeedAmt = Math.max(0, deathNeedAmt);
+                }
+
+                // ── 就業不能必要保障額（就業不能年齢〜退職まで残期間で逓減）──
+                let disNeedAmt = 0;
+                if (a >= disabledAge && a < retireAge) {
+                  const remainYrs = retireAge - a;
+                  disNeedAmt = Math.max(0, Math.round(disMonthShort * 12 * remainYrs));
+                }
+
+                // ── 保険カバー額 ──
+                // 死亡：定額保険（保障総額固定）
+                const deathCoverAmt = a < retireAge ? deathInsTotal : 0;
+                // 就業不能：収入保障型（残期間×月額）
+                const disRemainYrs = a >= disabledAge && a < retireAge ? Math.min(disInsYears - (a - disabledAge), retireAge - a) : 0;
+                const disCoverAmt = disRemainYrs > 0 ? Math.max(0, Math.round(disInsMonthly * 12 * disRemainYrs)) : 0;
+
+                coverageByAge.push({ age: a, deathNeed: deathNeedAmt, disneed: disNeedAmt, deathCover: deathCoverAmt, disCover: disCoverAmt });
+              }
+
+              // グラフ描画ユーティリティ
+              const GapChart = ({ dataKey, coverKey, needLabel, coverLabel, color, title, currentNeed, currentCover }) => {
+                const validData = coverageByAge.filter(d => d[dataKey] > 0 || d.age === age);
+                const maxNeed = Math.max(...validData.map(d => d[dataKey]), currentNeed, 1);
+                const svgW = 320; const svgH = 180;
+                const padL = 44; const padR = 10; const padT = 10; const padB = 32;
+                const chartW = svgW - padL - padR;
+                const chartH = svgH - padT - padB;
+                const ages = validData.map(d => d.age);
+                const minA = ages[0] || age; const maxA = ages[ages.length - 1] || 90;
+                const xScale = (a) => padL + (a - minA) / (maxA - minA) * chartW;
+                const yScale = (v) => padT + chartH - (v / maxNeed) * chartH;
+
+                // ニード（必要額）エリアのpath
+                const needPoints = validData.map(d => `${xScale(d.age)},${yScale(d[dataKey])}`).join(' ');
+                const needArea = `M${xScale(minA)},${padT + chartH} L${validData.map(d => `${xScale(d.age)},${yScale(d[dataKey])}`).join(' L')} L${xScale(maxA)},${padT + chartH} Z`;
+
+                // 保険カバーエリアのpath（ニードを上限にクリップ）
+                const coverArea = `M${xScale(minA)},${padT + chartH} L${validData.map(d => {
+                  const c = Math.min(d[coverKey] || 0, d[dataKey]);
+                  return `${xScale(d.age)},${yScale(c)}`;
+                }).join(' L')} L${xScale(maxA)},${padT + chartH} Z`;
+
+                const isCovered = currentCover >= currentNeed;
+                const tickAges = validData.filter((d, i) => i % Math.floor(validData.length / 5) === 0).map(d => d.age);
+
                 return (
                   <div style={{ background: "white", borderRadius: 12, padding: 14, marginBottom: 12 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                      <p style={{ margin: 0, fontSize: 12, fontWeight: 800, color: "#1e293b", fontFamily: "'Noto Sans JP', sans-serif" }}>{label}</p>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <p style={{ margin: 0, fontSize: 12, fontWeight: 800, color: "#1e293b", fontFamily: "'Noto Sans JP', sans-serif" }}>{title}</p>
                       <span style={{ fontSize: 11, fontWeight: 700, color: isCovered ? "#16a34a" : "#dc2626", background: isCovered ? "#f0fdf4" : "#fef2f2", padding: "3px 8px", borderRadius: 6, fontFamily: "'Noto Sans JP', sans-serif" }}>
-                        {isCovered ? "✅ カバー済み" : `⚠️ 不足 約${formatMan(uncovered)}`}
+                        {currentNeed === 0 ? "保障不要" : isCovered ? "✅ カバー済み" : `⚠️ 不足 ${formatMan(Math.max(0, currentNeed - currentCover))}`}
                       </span>
                     </div>
-                    {/* 棒グラフ */}
-                    <div style={{ marginBottom: 10 }}>
-                      {/* 必要保障額バー */}
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                        <span style={{ fontSize: 9, color: "#64748b", width: 52, flexShrink: 0, fontFamily: "'Noto Sans JP', sans-serif" }}>必要保障額</span>
-                        <div style={{ flex: 1, position: "relative", height: 24, background: "#f1f5f9", borderRadius: 6, overflow: "hidden" }}>
-                          {/* 赤：不足部分 */}
-                          <div style={{ position: "absolute", left: 0, top: 0, width: `${needPct}%`, height: "100%", background: "#fecaca", borderRadius: 6 }} />
-                          {/* 緑：保険カバー部分（上塗り） */}
-                          <div style={{ position: "absolute", left: 0, top: 0, width: `${coverPct}%`, height: "100%", background: "#86efac", borderRadius: 6, transition: "width 0.4s" }} />
-                          <span style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", fontSize: 10, fontWeight: 700, color: "#1e293b", fontFamily: "'Noto Sans JP', sans-serif" }}>
-                            {need > 0 ? formatMan(need) : "不要"}
-                          </span>
-                        </div>
+                    {/* 現時点の数値 */}
+                    <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                      <div style={{ flex: 1, background: "#fef2f2", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                        <p style={{ margin: "0 0 2px", fontSize: 9, color: "#64748b", fontFamily: "'Noto Sans JP', sans-serif" }}>{age}歳時点の必要保障額</p>
+                        <p style={{ margin: 0, fontSize: 16, fontWeight: 800, color: "#dc2626", fontFamily: "'Noto Sans JP', sans-serif" }}>{currentNeed > 0 ? formatMan(currentNeed) : "-"}</p>
                       </div>
-                      {/* 保険カバーバー */}
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontSize: 9, color: "#64748b", width: 52, flexShrink: 0, fontFamily: "'Noto Sans JP', sans-serif" }}>保険カバー</span>
-                        <div style={{ flex: 1, position: "relative", height: 24, background: "#f1f5f9", borderRadius: 6, overflow: "hidden" }}>
-                          <div style={{ position: "absolute", left: 0, top: 0, width: `${Math.min(cover / maxV * 100, 100)}%`, height: "100%", background: cover > 0 ? "#22c55e" : "#e2e8f0", borderRadius: 6, transition: "width 0.4s" }} />
-                          <span style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", fontSize: 10, fontWeight: 700, color: "#1e293b", fontFamily: "'Noto Sans JP', sans-serif" }}>
-                            {cover > 0 ? formatMan(cover) : "未設定"}
-                          </span>
-                        </div>
+                      <div style={{ flex: 1, background: "#f0fdf4", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                        <p style={{ margin: "0 0 2px", fontSize: 9, color: "#64748b", fontFamily: "'Noto Sans JP', sans-serif" }}>保険カバー額</p>
+                        <p style={{ margin: 0, fontSize: 16, fontWeight: 800, color: "#16a34a", fontFamily: "'Noto Sans JP', sans-serif" }}>{currentCover > 0 ? formatMan(currentCover) : "未設定"}</p>
                       </div>
                     </div>
+                    {/* エリアチャート */}
+                    <svg viewBox={`0 0 ${svgW} ${svgH}`} style={{ width: "100%", height: "auto" }}>
+                      <defs>
+                        <linearGradient id={`gNeed${coverKey}`} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#fca5a5" stopOpacity="0.8" />
+                          <stop offset="100%" stopColor="#fca5a5" stopOpacity="0.2" />
+                        </linearGradient>
+                        <linearGradient id={`gCover${coverKey}`} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#4ade80" stopOpacity="0.9" />
+                          <stop offset="100%" stopColor="#4ade80" stopOpacity="0.3" />
+                        </linearGradient>
+                      </defs>
+                      {/* グリッド */}
+                      {[0.25, 0.5, 0.75, 1].map(r => (
+                        <line key={r} x1={padL} y1={padT + chartH * (1 - r)} x2={svgW - padR} y2={padT + chartH * (1 - r)} stroke="#f1f5f9" strokeWidth="1" />
+                      ))}
+                      {/* Y軸ラベル */}
+                      {[0.5, 1].map(r => (
+                        <text key={r} x={padL - 3} y={padT + chartH * (1 - r) + 4} textAnchor="end" fontSize="8" fill="#94a3b8">
+                          {formatMan(maxNeed * r)}
+                        </text>
+                      ))}
+                      {/* 必要額エリア（赤） */}
+                      <path d={needArea} fill={`url(#gNeed${coverKey})`} />
+                      <path d={`M${validData.map(d => `${xScale(d.age)},${yScale(d[dataKey])}`).join(' L')}`} fill="none" stroke="#ef4444" strokeWidth="2" />
+                      {/* 保険カバーエリア（緑・上塗り） */}
+                      <path d={coverArea} fill={`url(#gCover${coverKey})`} />
+                      <path d={`M${validData.map(d => `${xScale(d.age)},${yScale(Math.min(d[coverKey] || 0, d[dataKey]))}`).join(' L')}`} fill="none" stroke="#16a34a" strokeWidth="2" strokeDasharray={currentCover > 0 ? "none" : "4,3"} />
+                      {/* X軸 */}
+                      <line x1={padL} y1={padT + chartH} x2={svgW - padR} y2={padT + chartH} stroke="#e2e8f0" strokeWidth="1" />
+                      {/* X軸ラベル */}
+                      {tickAges.map(a => (
+                        <text key={a} x={xScale(a)} y={svgH - 16} textAnchor="middle" fontSize="8" fill="#94a3b8">{a}歳</text>
+                      ))}
+                    </svg>
                     {/* 凡例 */}
-                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                        <div style={{ width: 10, height: 10, borderRadius: 2, background: "#fecaca" }} />
-                        <span style={{ fontSize: 9, color: "#64748b", fontFamily: "'Noto Sans JP', sans-serif" }}>不足部分</span>
+                        <div style={{ width: 12, height: 8, borderRadius: 2, background: "#fca5a5" }} />
+                        <span style={{ fontSize: 9, color: "#64748b", fontFamily: "'Noto Sans JP', sans-serif" }}>{needLabel}</span>
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                        <div style={{ width: 10, height: 10, borderRadius: 2, background: "#86efac" }} />
-                        <span style={{ fontSize: 9, color: "#64748b", fontFamily: "'Noto Sans JP', sans-serif" }}>保険カバー</span>
+                        <div style={{ width: 12, height: 8, borderRadius: 2, background: "#4ade80" }} />
+                        <span style={{ fontSize: 9, color: "#64748b", fontFamily: "'Noto Sans JP', sans-serif" }}>{coverLabel}</span>
                       </div>
-                      {monthlyShort > 0 && (
-                        <span style={{ fontSize: 9, color: "#94a3b8", fontFamily: "'Noto Sans JP', sans-serif" }}>
-                          月{monthlyShort}万×{yrs}年で試算
-                        </span>
-                      )}
                     </div>
                   </div>
                 );
               };
+
+              const currentDeathNeed = coverageByAge.find(d => d.age === age)?.deathNeed || 0;
+              const currentDeathCover = Math.min(deathInsTotal, currentDeathNeed);
+              const currentDisNeed = coverageByAge.find(d => d.age === disabledAge)?.disneed || 0;
+              const currentDisCover = Math.min(disInsMonthly * 12 * Math.min(disInsYears, Math.max(0, retireAge - disabledAge)), currentDisNeed);
 
               return (
                 <div style={{ marginTop: 20 }}>
@@ -1144,18 +1214,22 @@ export default function LifeSimulator() {
                     </div>
                   </div>
 
-                  {/* ギャップグラフ */}
-                  <BarChart
-                    need={disNeed} cover={disCover}
-                    label={`🏥 就業不能保険（${disabledAge}歳〜${retireAge}歳）`}
-                    color="#f59e0b"
-                    monthlyShort={disShort} yrs={disYrs}
+                  {/* 死亡保障グラフ */}
+                  <GapChart
+                    dataKey="deathNeed" coverKey="deathCover"
+                    needLabel="必要保障額（生活費・教育費不足の累計）"
+                    coverLabel="死亡保険カバー額"
+                    title={`💐 死亡保障　（団信${hasDansin ? "あり" : "なし"}）`}
+                    currentNeed={currentDeathNeed} currentCover={currentDeathCover}
                   />
-                  <BarChart
-                    need={deathNeed} cover={deathCover}
-                    label={`💐 死亡保険（団信${hasDansin ? "あり" : "なし"}）`}
-                    color="#9f1239"
-                    monthlyShort={Math.round(deathMonthShort * 10) / 10} yrs={deathYrs}
+
+                  {/* 就業不能グラフ */}
+                  <GapChart
+                    dataKey="disneed" coverKey="disCover"
+                    needLabel="必要保障額（収入減少分の累計）"
+                    coverLabel="就業不能保険カバー額（逓減）"
+                    title={`🏥 就業不能保障　（${disabledAge}歳〜${retireAge}歳）`}
+                    currentNeed={currentDisNeed} currentCover={currentDisCover}
                   />
                 </div>
               );
