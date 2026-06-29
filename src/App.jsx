@@ -180,7 +180,7 @@ export default function LifeSimulator() {
   const defaultChildEdu = () => ({ currentAge: 0, elementary: "公立", juniorHigh: "公立", highSchool: "公立", university: "国立", extracurricular: 1, juku: 0 });
   const [childEduSettings, setChildEduSettings] = useState([defaultChildEdu()]);
   const [carPurchase, setCarPurchase] = useState(true);
-  const [inflationRate, setInflationRate] = useState(1.0); // インフレ率 %/年
+  const [inflationRate, setInflationRate] = useState(1.0); // インフレ率 %/年（ステップ3で設定）
   const [renovation, setRenovation] = useState(true);
   const [renovationCost, setRenovationCost] = useState(400); // リフォーム1回あたり万円
   const [renovationCount, setRenovationCount] = useState(2); // リフォーム回数
@@ -228,13 +228,11 @@ export default function LifeSimulator() {
   // 老齢厚生年金: 平均標準報酬月額 × 5.481/1000 × 加入月数（報酬比例部分）
   // 老齢基礎年金: 81.6万円 × 加入月数 / 480（満額81.6万円）
   const calcNenkin = (monthlyIncome, currentAge, retAge, pastYears) => {
-    // 手取り→額面に逆換算（おおよそ×1.25）
     const grossMonthly = monthlyIncome * 1.25;
     const futureYears = retAge - currentAge;
-    const totalMonths = Math.min((pastYears + futureYears) * 12, 480); // 上限40年
-    const koseiMonths = Math.min((pastYears + futureYears) * 12, 480);
-    const kosei = grossMonthly * 5.481 / 1000 * koseiMonths; // 万円/年
-    const kiso = 81.6 * Math.min(totalMonths, 480) / 480; // 万円/年
+    const totalMonths = Math.min((pastYears + futureYears) * 12, 480);
+    const kosei = grossMonthly * 5.481 / 1000 * totalMonths;
+    const kiso = 81.6 * totalMonths / 480;
     return Math.round((kosei + kiso) * 10) / 10;
   };
 
@@ -353,8 +351,8 @@ export default function LifeSimulator() {
 
       // イベント支出
       let eventCost = 0;
-      // 教育費（学校段階別・子ども別）
-      if (children > 0) {
+      // 教育費（子どもが1人以上の場合のみ）
+      if (children > 0 && childEduSettings.length > 0) {
         for (let c = 0; c < Math.min(children, childEduSettings.length); c++) {
           const cs = childEduSettings[c];
           const childBirthYear = age - (cs.currentAge || 0);
@@ -394,20 +392,22 @@ export default function LifeSimulator() {
       }
       // 退職旅行
       if (retirementTravel && a === retireAge) eventCost += 200 * inflFactor;
-      // 老後医療費
-      if (a >= 75) eventCost += 100 * inflFactor;
+      // 老後医療費（固定費として扱う・インフレ係数なし）
+      if (a >= 75) eventCost += 100;
 
       const netNormal = annualIncome - annualExpense - eventCost;
       asset += netNormal;
 
-      // リスクシナリオ: 就業不能（保険なし）
+      // リスクシナリオ: 就業不能（ボーナスなし・月収のみの30%が障害年金等で残る）
       let riskNet = netNormal;
       if (a >= disabledAge && a < retireAge) {
-        riskNet = annualIncome * (withInsurance ? 0.8 : 0.3) - annualExpense - eventCost;
+        const disabledMonthlyIncome = income * 12 * (hasSpouse ? 1 : 1) * 0.3
+          + (hasSpouse ? spouseIncome * 12 * (withInsurance ? 1 : 0.3) : 0);
+        riskNet = disabledMonthlyIncome - annualExpense - eventCost;
       }
       riskAsset += riskNet;
 
-      data.push({ age: a, 資産残高: Math.round(asset), ローン残債: Math.round(Math.max(0, loanAmount - (monthlyLoan * 12 * year))) });
+      data.push({ age: a, 資産残高: Math.round(asset) });
       rData.push({ age: a, 通常: Math.round(asset), リスク時: Math.round(riskAsset) });
     }
     setChartData(data);
@@ -417,15 +417,13 @@ export default function LifeSimulator() {
     const finalAsset = data[data.length - 1].資産残高;
     const negativeAge = data.find(d => d.資産残高 < 0);
 
-    // 必要保障額計算: 就業不能時の収入減少分を補填するために必要な月額
-    // 現在収入の70%が就業不能給付の一般的な水準。現状30%しかない場合の不足分を算出
-    const monthlyIncome = income + (hasSpouse ? spouseIncome : 0);
+    // 必要保障額計算: 就業不能時はボーナスなし・月収のみの30%が残る想定
+    const monthlyIncome = income; // 本人月収のみ（ボーナス除く）
     const monthlyExpense = living + monthlyLoan;
-    const incomeAfterDisabled = monthlyIncome * 0.3; // 障害年金等で約30%残る想定
-    const monthlyShortfall = monthlyExpense - incomeAfterDisabled; // 毎月の不足額
-    const yearsToRecover = Math.max(0, retireAge - disabledAge); // 就業不能〜退職までの年数
+    const incomeAfterDisabled = monthlyIncome * 0.3;
+    const monthlyShortfall = monthlyExpense - incomeAfterDisabled;
+    const yearsToRecover = Math.max(0, retireAge - disabledAge);
     const totalShortfall = Math.max(0, monthlyShortfall * 12 * yearsToRecover);
-    // 必要月額給付: 不足額をそのまま補填する月額
     const requiredMonthly = Math.max(0, monthlyShortfall);
 
     setRequiredCoverage({ monthlyShortfall: Math.round(requiredMonthly * 10) / 10, totalShortfall: Math.round(totalShortfall), yearsToRecover });
@@ -448,7 +446,6 @@ export default function LifeSimulator() {
 
   // 結果プレビューモーダル
   const [showPreview, setShowPreview] = useState(false);
-  const [pdfLoading, setPdfLoading] = useState(false);
   const [printMode, setPrintMode] = useState(false);
 
   const generatePDF = () => {
@@ -545,18 +542,6 @@ export default function LifeSimulator() {
               <p style={{ margin: 0, fontSize: 12, color: "#5b21b6", fontFamily: "'Noto Sans JP', sans-serif" }}>
                 退職時受取合計：<strong>{(retirement + (hasSpouse ? spouseRetirement : 0)).toLocaleString()}万円</strong>
                 　（{retireAge}歳時に資産へ一括加算）
-              </p>
-            </div>
-
-            <div style={{ height: 1, background: "#f1f5f9", margin: "20px 0" }} />
-            <p style={{ fontSize: 12, color: "#64748b", marginBottom: 12, fontFamily: "'Noto Sans JP', sans-serif" }}>📈 インフレ率</p>
-            <Slider label="年間インフレ率" value={inflationRate} min={0} max={5} step={0.1} unit="%" onChange={setInflationRate} color="#dc2626" />
-            <div style={{ background: inflationRate === 0 ? "#f8fafc" : inflationRate <= 1 ? "#fff7ed" : inflationRate <= 2 ? "#fef2f2" : "#fef2f2", border: `1px solid ${inflationRate === 0 ? "#e2e8f0" : inflationRate <= 1 ? "#fed7aa" : "#fecaca"}`, borderRadius: 10, padding: 12 }}>
-              <p style={{ margin: 0, fontSize: 12, color: inflationRate === 0 ? "#64748b" : "#92400e", fontFamily: "'Noto Sans JP', sans-serif" }}>
-                {inflationRate === 0 ? "インフレなし（名目値で計算）" : `年${inflationRate}%のインフレを想定 — 30年後の支出は現在の約${(Math.pow(1 + inflationRate / 100, 30) * 100).toFixed(0)}%に`}
-              </p>
-              <p style={{ margin: "4px 0 0", fontSize: 11, color: "#64748b", fontFamily: "'Noto Sans JP', sans-serif" }}>
-                ※ 生活費・教育費・各イベント支出に反映。ローン返済額は固定のため除外。
               </p>
             </div>
           </div>
@@ -705,6 +690,18 @@ export default function LifeSimulator() {
                 </p>
               </div>
             )}
+
+            <div style={{ height: 1, background: "#f1f5f9", margin: "16px 0" }} />
+            <p style={{ fontSize: 12, color: "#64748b", marginBottom: 12, fontFamily: "'Noto Sans JP', sans-serif" }}>📈 インフレ率</p>
+            <Slider label="年間インフレ率" value={inflationRate} min={0} max={5} step={0.1} unit="%" onChange={setInflationRate} color="#dc2626" />
+            <div style={{ background: inflationRate === 0 ? "#f8fafc" : inflationRate <= 2 ? "#fff7ed" : "#fef2f2", border: `1px solid ${inflationRate === 0 ? "#e2e8f0" : inflationRate <= 2 ? "#fed7aa" : "#fecaca"}`, borderRadius: 10, padding: 12 }}>
+              <p style={{ margin: 0, fontSize: 12, color: inflationRate === 0 ? "#64748b" : "#92400e", fontFamily: "'Noto Sans JP', sans-serif" }}>
+                {inflationRate === 0 ? "インフレなし（名目値で計算）" : `年${inflationRate}%のインフレを想定 — 30年後の支出は現在の約${(Math.pow(1 + inflationRate / 100, 30) * 100).toFixed(0)}%に`}
+              </p>
+              <p style={{ margin: "4px 0 0", fontSize: 11, color: "#64748b", fontFamily: "'Noto Sans JP', sans-serif" }}>
+                ※ 生活費・教育費・各イベント支出に反映。ローン返済額・老後医療費は固定。
+              </p>
+            </div>
           </div>
         );
       case 3:
