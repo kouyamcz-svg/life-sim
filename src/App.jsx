@@ -448,6 +448,11 @@ export default function LifeSimulator() {
   const [showPreview, setShowPreview] = useState(false);
   const [printMode, setPrintMode] = useState(false);
 
+  // 保険設定（就業不能・死亡）
+  const [disInsMonthly, setDisInsMonthly] = useState(0);   // 就業不能保険 月額給付（万円）
+  const [disInsYears, setDisInsYears] = useState(20);       // 就業不能保険 保障期間（年）
+  const [deathInsTotal, setDeathInsTotal] = useState(0);    // 死亡保険 保障総額（万円）
+
   const generatePDF = () => {
     setPrintMode(true);
   };
@@ -1010,6 +1015,152 @@ export default function LifeSimulator() {
               </p>
             </div>
 
+            {/* 保障ギャップ分析 */}
+            {(() => {
+              const monthlyLoanAmt = calcMonthlyLoan();
+              // 就業不能
+              const disShort = Math.max(0, Math.round((living + monthlyLoanAmt - income * 0.3) * 10) / 10);
+              const disYrs = Math.max(0, retireAge - disabledAge);
+              const disNeed = Math.round(disShort * 12 * disYrs); // 総必要額（万円）
+              const disCover = Math.round(disInsMonthly * 12 * Math.min(disInsYears, disYrs)); // 保険カバー額
+              const disUncovered = Math.max(0, disNeed - disCover);
+              const disOverCover = Math.max(0, disCover - disNeed);
+              // 死亡
+              const izoku = calcIzokuNenkin(income, age, kosei_years, children);
+              const izokuM = Math.round(izoku.total / 12 * 10) / 10;
+              const expDeath = hasDansin ? living : living + monthlyLoanAmt;
+              const deathMonthShort = Math.max(0, expDeath - izokuM);
+              const deathYrs = Math.max(0, children > 0 ? 18 - (childEduSettings[0]?.currentAge || 0) + (retireAge - age) : retireAge - age);
+              const deathNeed = Math.round(deathMonthShort * 12 * deathYrs);
+              const deathCover = deathInsTotal;
+              const deathUncovered = Math.max(0, deathNeed - deathCover);
+              const deathOverCover = Math.max(0, deathCover - deathNeed);
+
+              // SVGバーグラフ描画ヘルパー
+              const BarChart = ({ need, cover, label, color, monthlyShort, yrs }) => {
+                const maxV = Math.max(need, cover, 1);
+                const needPct = need / maxV * 100;
+                const coverPct = Math.min(cover, need) / maxV * 100;
+                const uncovered = Math.max(0, need - cover);
+                const isCovered = cover >= need;
+                return (
+                  <div style={{ background: "white", borderRadius: 12, padding: 14, marginBottom: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                      <p style={{ margin: 0, fontSize: 12, fontWeight: 800, color: "#1e293b", fontFamily: "'Noto Sans JP', sans-serif" }}>{label}</p>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: isCovered ? "#16a34a" : "#dc2626", background: isCovered ? "#f0fdf4" : "#fef2f2", padding: "3px 8px", borderRadius: 6, fontFamily: "'Noto Sans JP', sans-serif" }}>
+                        {isCovered ? "✅ カバー済み" : `⚠️ 不足 約${formatMan(uncovered)}`}
+                      </span>
+                    </div>
+                    {/* 棒グラフ */}
+                    <div style={{ marginBottom: 10 }}>
+                      {/* 必要保障額バー */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                        <span style={{ fontSize: 9, color: "#64748b", width: 52, flexShrink: 0, fontFamily: "'Noto Sans JP', sans-serif" }}>必要保障額</span>
+                        <div style={{ flex: 1, position: "relative", height: 24, background: "#f1f5f9", borderRadius: 6, overflow: "hidden" }}>
+                          {/* 赤：不足部分 */}
+                          <div style={{ position: "absolute", left: 0, top: 0, width: `${needPct}%`, height: "100%", background: "#fecaca", borderRadius: 6 }} />
+                          {/* 緑：保険カバー部分（上塗り） */}
+                          <div style={{ position: "absolute", left: 0, top: 0, width: `${coverPct}%`, height: "100%", background: "#86efac", borderRadius: 6, transition: "width 0.4s" }} />
+                          <span style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", fontSize: 10, fontWeight: 700, color: "#1e293b", fontFamily: "'Noto Sans JP', sans-serif" }}>
+                            {need > 0 ? formatMan(need) : "不要"}
+                          </span>
+                        </div>
+                      </div>
+                      {/* 保険カバーバー */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 9, color: "#64748b", width: 52, flexShrink: 0, fontFamily: "'Noto Sans JP', sans-serif" }}>保険カバー</span>
+                        <div style={{ flex: 1, position: "relative", height: 24, background: "#f1f5f9", borderRadius: 6, overflow: "hidden" }}>
+                          <div style={{ position: "absolute", left: 0, top: 0, width: `${Math.min(cover / maxV * 100, 100)}%`, height: "100%", background: cover > 0 ? "#22c55e" : "#e2e8f0", borderRadius: 6, transition: "width 0.4s" }} />
+                          <span style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", fontSize: 10, fontWeight: 700, color: "#1e293b", fontFamily: "'Noto Sans JP', sans-serif" }}>
+                            {cover > 0 ? formatMan(cover) : "未設定"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    {/* 凡例 */}
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <div style={{ width: 10, height: 10, borderRadius: 2, background: "#fecaca" }} />
+                        <span style={{ fontSize: 9, color: "#64748b", fontFamily: "'Noto Sans JP', sans-serif" }}>不足部分</span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <div style={{ width: 10, height: 10, borderRadius: 2, background: "#86efac" }} />
+                        <span style={{ fontSize: 9, color: "#64748b", fontFamily: "'Noto Sans JP', sans-serif" }}>保険カバー</span>
+                      </div>
+                      {monthlyShort > 0 && (
+                        <span style={{ fontSize: 9, color: "#94a3b8", fontFamily: "'Noto Sans JP', sans-serif" }}>
+                          月{monthlyShort}万×{yrs}年で試算
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              };
+
+              return (
+                <div style={{ marginTop: 20 }}>
+                  <p style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 800, color: "#1e293b", fontFamily: "'Noto Sans JP', sans-serif" }}>🛡️ 保障ギャップ分析</p>
+
+                  {/* 保険入力 */}
+                  <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                    <p style={{ margin: "0 0 10px", fontSize: 12, fontWeight: 700, color: "#475569", fontFamily: "'Noto Sans JP', sans-serif" }}>現在加入している保険を入力</p>
+                    <div style={{ marginBottom: 12 }}>
+                      <p style={{ margin: "0 0 6px", fontSize: 11, color: "#64748b", fontFamily: "'Noto Sans JP', sans-serif" }}>🏥 就業不能保険</p>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                        <div>
+                          <p style={{ margin: "0 0 4px", fontSize: 10, color: "#94a3b8", fontFamily: "'Noto Sans JP', sans-serif" }}>月額給付（万円）</p>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <button onPointerDown={() => setDisInsMonthly(v => Math.max(0, Math.round((v - 1) * 10) / 10))} style={{ width: 36, height: 36, borderRadius: 8, border: "2px solid #e2e8f0", background: "white", fontSize: 18, fontWeight: 700, color: "#475569", cursor: "pointer", flexShrink: 0 }}>−</button>
+                            <input type="number" value={disInsMonthly} min={0} max={50} step={0.5}
+                              onChange={e => setDisInsMonthly(Math.max(0, Number(e.target.value)))}
+                              style={{ flex: 1, padding: "8px", borderRadius: 8, border: "2px solid #e2e8f0", fontSize: 14, fontWeight: 700, textAlign: "center", fontFamily: "'Noto Sans JP', sans-serif" }} />
+                            <button onPointerDown={() => setDisInsMonthly(v => Math.round((v + 1) * 10) / 10)} style={{ width: 36, height: 36, borderRadius: 8, border: "none", background: "#f59e0b", fontSize: 18, fontWeight: 700, color: "white", cursor: "pointer", flexShrink: 0 }}>＋</button>
+                          </div>
+                        </div>
+                        <div>
+                          <p style={{ margin: "0 0 4px", fontSize: 10, color: "#94a3b8", fontFamily: "'Noto Sans JP', sans-serif" }}>保障期間（年）</p>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <button onPointerDown={() => setDisInsYears(v => Math.max(1, v - 1))} style={{ width: 36, height: 36, borderRadius: 8, border: "2px solid #e2e8f0", background: "white", fontSize: 18, fontWeight: 700, color: "#475569", cursor: "pointer", flexShrink: 0 }}>−</button>
+                            <input type="number" value={disInsYears} min={1} max={40}
+                              onChange={e => setDisInsYears(Math.max(1, Number(e.target.value)))}
+                              style={{ flex: 1, padding: "8px", borderRadius: 8, border: "2px solid #e2e8f0", fontSize: 14, fontWeight: 700, textAlign: "center", fontFamily: "'Noto Sans JP', sans-serif" }} />
+                            <button onPointerDown={() => setDisInsYears(v => Math.min(40, v + 1))} style={{ width: 36, height: 36, borderRadius: 8, border: "none", background: "#f59e0b", fontSize: 18, fontWeight: 700, color: "white", cursor: "pointer", flexShrink: 0 }}>＋</button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      <p style={{ margin: "0 0 6px", fontSize: 11, color: "#64748b", fontFamily: "'Noto Sans JP', sans-serif" }}>💐 死亡保険（保障総額）</p>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <button onPointerDown={() => setDeathInsTotal(v => Math.max(0, v - 100))} style={{ width: 36, height: 36, borderRadius: 8, border: "2px solid #e2e8f0", background: "white", fontSize: 18, fontWeight: 700, color: "#475569", cursor: "pointer", flexShrink: 0 }}>−</button>
+                        <div style={{ flex: 1, position: "relative" }}>
+                          <input type="number" value={deathInsTotal} min={0} max={20000} step={100}
+                            onChange={e => setDeathInsTotal(Math.max(0, Number(e.target.value)))}
+                            style={{ width: "100%", padding: "8px 40px 8px 8px", borderRadius: 8, border: "2px solid #e2e8f0", fontSize: 14, fontWeight: 700, textAlign: "center", fontFamily: "'Noto Sans JP', sans-serif", boxSizing: "border-box" }} />
+                          <span style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", fontSize: 11, color: "#94a3b8" }}>万円</span>
+                        </div>
+                        <button onPointerDown={() => setDeathInsTotal(v => v + 100)} style={{ width: 36, height: 36, borderRadius: 8, border: "none", background: "#9f1239", fontSize: 18, fontWeight: 700, color: "white", cursor: "pointer", flexShrink: 0 }}>＋</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ギャップグラフ */}
+                  <BarChart
+                    need={disNeed} cover={disCover}
+                    label={`🏥 就業不能保険（${disabledAge}歳〜${retireAge}歳）`}
+                    color="#f59e0b"
+                    monthlyShort={disShort} yrs={disYrs}
+                  />
+                  <BarChart
+                    need={deathNeed} cover={deathCover}
+                    label={`💐 死亡保険（団信${hasDansin ? "あり" : "なし"}）`}
+                    color="#9f1239"
+                    monthlyShort={Math.round(deathMonthShort * 10) / 10} yrs={deathYrs}
+                  />
+                </div>
+              );
+            })()}
+
             {/* ボタン2つ */}
             <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
               <button onClick={generatePDFPreview} style={{
@@ -1017,14 +1168,13 @@ export default function LifeSimulator() {
                 background: "white", fontSize: 13, fontWeight: 700, color: "#2563eb",
                 cursor: "pointer", fontFamily: "'Noto Sans JP', sans-serif",
               }}>📋 画面で確認</button>
-              <button onClick={generatePDF} disabled={pdfLoading} style={{
+              <button onClick={generatePDF} style={{
                 flex: 1, padding: "14px 0", borderRadius: 14, border: "none",
-                background: pdfLoading ? "#e2e8f0" : "linear-gradient(135deg, #dc2626, #b91c1c)",
-                fontSize: 13, fontWeight: 800, color: pdfLoading ? "#94a3b8" : "white",
-                cursor: pdfLoading ? "not-allowed" : "pointer",
-                boxShadow: pdfLoading ? "none" : "0 4px 14px rgba(220,38,38,0.35)",
+                background: "linear-gradient(135deg, #dc2626, #b91c1c)",
+                fontSize: 13, fontWeight: 800, color: "white", cursor: "pointer",
+                boxShadow: "0 4px 14px rgba(220,38,38,0.35)",
                 fontFamily: "'Noto Sans JP', sans-serif",
-              }}>{pdfLoading ? "⏳ 生成中..." : "📄 PDFで保存"}</button>
+              }}>📄 PDFで保存</button>
             </div>
           </div>
         );
