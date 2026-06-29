@@ -451,7 +451,8 @@ export default function LifeSimulator() {
   // 保険設定（就業不能・死亡）
   const [disInsMonthly, setDisInsMonthly] = useState(0);   // 就業不能保険 月額給付（万円）
   const [disInsYears, setDisInsYears] = useState(20);       // 就業不能保険 保障期間（年）
-  const [deathInsTotal, setDeathInsTotal] = useState(0);    // 死亡保険 保障総額（万円）
+  const [deathInsMonthly, setDeathInsMonthly] = useState(0); // 死亡保険 月額給付（万円）
+  const [deathInsYears, setDeathInsYears] = useState(20);    // 死亡保険 保障期間（年）
 
   const generatePDF = () => {
     setPrintMode(true);
@@ -1058,8 +1059,9 @@ export default function LifeSimulator() {
                 }
 
                 // ── 保険カバー額 ──
-                // 死亡：定額保険（保障総額固定）
-                const deathCoverAmt = a < retireAge ? deathInsTotal : 0;
+                // 死亡：収入保障型（月額×残期間、保障期間内のみ）
+                const deathRemainYrs = a < retireAge ? Math.max(0, Math.min(deathInsYears - (a - age), retireAge - a)) : 0;
+                const deathCoverAmt = deathRemainYrs > 0 ? Math.max(0, Math.round(deathInsMonthly * 12 * deathRemainYrs)) : 0;
                 // 就業不能：収入保障型（残期間×月額）
                 const disRemainYrs = a >= disabledAge && a < retireAge ? Math.min(disInsYears - (a - disabledAge), retireAge - a) : 0;
                 const disCoverAmt = disRemainYrs > 0 ? Math.max(0, Math.round(disInsMonthly * 12 * disRemainYrs)) : 0;
@@ -1163,7 +1165,8 @@ export default function LifeSimulator() {
               };
 
               const currentDeathNeed = coverageByAge.find(d => d.age === age)?.deathNeed || 0;
-              const currentDeathCover = Math.min(deathInsTotal, currentDeathNeed);
+              const currentDeathCoverTotal = Math.round(deathInsMonthly * 12 * Math.min(deathInsYears, Math.max(0, retireAge - age)));
+              const currentDeathCover = Math.min(currentDeathCoverTotal, currentDeathNeed);
               const currentDisNeed = coverageByAge.find(d => d.age === disabledAge)?.disneed || 0;
               const currentDisCover = Math.min(disInsMonthly * 12 * Math.min(disInsYears, Math.max(0, retireAge - disabledAge)), currentDisNeed);
 
@@ -1200,17 +1203,36 @@ export default function LifeSimulator() {
                       </div>
                     </div>
                     <div>
-                      <p style={{ margin: "0 0 6px", fontSize: 11, color: "#64748b", fontFamily: "'Noto Sans JP', sans-serif" }}>💐 死亡保険（保障総額）</p>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <button onPointerDown={() => setDeathInsTotal(v => Math.max(0, v - 100))} style={{ width: 36, height: 36, borderRadius: 8, border: "2px solid #e2e8f0", background: "white", fontSize: 18, fontWeight: 700, color: "#475569", cursor: "pointer", flexShrink: 0 }}>−</button>
-                        <div style={{ flex: 1, position: "relative" }}>
-                          <input type="number" value={deathInsTotal} min={0} max={20000} step={100}
-                            onChange={e => setDeathInsTotal(Math.max(0, Number(e.target.value)))}
-                            style={{ width: "100%", padding: "8px 40px 8px 8px", borderRadius: 8, border: "2px solid #e2e8f0", fontSize: 14, fontWeight: 700, textAlign: "center", fontFamily: "'Noto Sans JP', sans-serif", boxSizing: "border-box" }} />
-                          <span style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", fontSize: 11, color: "#94a3b8" }}>万円</span>
+                      <p style={{ margin: "0 0 6px", fontSize: 11, color: "#64748b", fontFamily: "'Noto Sans JP', sans-serif" }}>💐 死亡保険（収入保障型）</p>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                        <div>
+                          <p style={{ margin: "0 0 4px", fontSize: 10, color: "#94a3b8", fontFamily: "'Noto Sans JP', sans-serif" }}>月額給付（万円）</p>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <button onPointerDown={() => setDeathInsMonthly(v => Math.max(0, Math.round((v - 1) * 10) / 10))} style={{ width: 36, height: 36, borderRadius: 8, border: "2px solid #e2e8f0", background: "white", fontSize: 18, fontWeight: 700, color: "#475569", cursor: "pointer", flexShrink: 0 }}>−</button>
+                            <input type="number" value={deathInsMonthly} min={0} max={100} step={0.5}
+                              onChange={e => setDeathInsMonthly(Math.max(0, Number(e.target.value)))}
+                              style={{ flex: 1, padding: "8px", borderRadius: 8, border: "2px solid #e2e8f0", fontSize: 14, fontWeight: 700, textAlign: "center", fontFamily: "'Noto Sans JP', sans-serif" }} />
+                            <button onPointerDown={() => setDeathInsMonthly(v => Math.round((v + 1) * 10) / 10)} style={{ width: 36, height: 36, borderRadius: 8, border: "none", background: "#9f1239", fontSize: 18, fontWeight: 700, color: "white", cursor: "pointer", flexShrink: 0 }}>＋</button>
+                          </div>
                         </div>
-                        <button onPointerDown={() => setDeathInsTotal(v => v + 100)} style={{ width: 36, height: 36, borderRadius: 8, border: "none", background: "#9f1239", fontSize: 18, fontWeight: 700, color: "white", cursor: "pointer", flexShrink: 0 }}>＋</button>
+                        <div>
+                          <p style={{ margin: "0 0 4px", fontSize: 10, color: "#94a3b8", fontFamily: "'Noto Sans JP', sans-serif" }}>保障期間（年）</p>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <button onPointerDown={() => setDeathInsYears(v => Math.max(1, v - 1))} style={{ width: 36, height: 36, borderRadius: 8, border: "2px solid #e2e8f0", background: "white", fontSize: 18, fontWeight: 700, color: "#475569", cursor: "pointer", flexShrink: 0 }}>−</button>
+                            <input type="number" value={deathInsYears} min={1} max={50}
+                              onChange={e => setDeathInsYears(Math.max(1, Number(e.target.value)))}
+                              style={{ flex: 1, padding: "8px", borderRadius: 8, border: "2px solid #e2e8f0", fontSize: 14, fontWeight: 700, textAlign: "center", fontFamily: "'Noto Sans JP', sans-serif" }} />
+                            <button onPointerDown={() => setDeathInsYears(v => Math.min(50, v + 1))} style={{ width: 36, height: 36, borderRadius: 8, border: "none", background: "#9f1239", fontSize: 18, fontWeight: 700, color: "white", cursor: "pointer", flexShrink: 0 }}>＋</button>
+                          </div>
+                        </div>
                       </div>
+                      {deathInsMonthly > 0 && (
+                        <div style={{ marginTop: 8, background: "#fff1f2", borderRadius: 8, padding: "8px 10px" }}>
+                          <p style={{ margin: 0, fontSize: 11, color: "#9f1239", fontFamily: "'Noto Sans JP', sans-serif" }}>
+                            保障総額（現時点）：約<strong>{formatMan(Math.round(deathInsMonthly * 12 * Math.min(deathInsYears, Math.max(0, retireAge - age))))}</strong>
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -1218,9 +1240,9 @@ export default function LifeSimulator() {
                   <GapChart
                     dataKey="deathNeed" coverKey="deathCover"
                     needLabel="必要保障額（生活費・教育費不足の累計）"
-                    coverLabel="死亡保険カバー額"
+                    coverLabel="死亡保険カバー額（逓減）"
                     title={`💐 死亡保障　（団信${hasDansin ? "あり" : "なし"}）`}
-                    currentNeed={currentDeathNeed} currentCover={currentDeathCover}
+                    currentNeed={currentDeathNeed} currentCover={currentDeathCoverTotal}
                   />
 
                   {/* 就業不能グラフ */}
