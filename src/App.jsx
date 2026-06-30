@@ -1118,12 +1118,12 @@ export default function LifeSimulator() {
                     <svg viewBox={`0 0 ${svgW} ${svgH}`} style={{ width: "100%", height: "auto" }}>
                       <defs>
                         <linearGradient id={`gNeed${coverKey}`} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#fca5a5" stopOpacity="0.8" />
-                          <stop offset="100%" stopColor="#fca5a5" stopOpacity="0.2" />
+                          <stop offset="0%" stopColor="#f87171" stopOpacity="0.9" />
+                          <stop offset="100%" stopColor="#f87171" stopOpacity="0.35" />
                         </linearGradient>
                         <linearGradient id={`gCover${coverKey}`} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#4ade80" stopOpacity="0.9" />
-                          <stop offset="100%" stopColor="#4ade80" stopOpacity="0.3" />
+                          <stop offset="0%" stopColor="#22c55e" stopOpacity="0.55" />
+                          <stop offset="100%" stopColor="#22c55e" stopOpacity="0.25" />
                         </linearGradient>
                       </defs>
                       {/* グリッド */}
@@ -1136,12 +1136,14 @@ export default function LifeSimulator() {
                           {formatMan(maxNeed * r)}
                         </text>
                       ))}
-                      {/* 必要額エリア（赤） */}
+                      {/* 必要額エリア（赤・半透明） */}
                       <path d={needArea} fill={`url(#gNeed${coverKey})`} />
-                      <path d={`M${validData.map(d => `${xScale(d.age)},${yScale(d[dataKey])}`).join(' L')}`} fill="none" stroke="#ef4444" strokeWidth="2" />
-                      {/* 保険カバーエリア（緑・上塗り） */}
+                      {/* 保険カバーエリア（緑・半透明で上塗り。赤が透けて見える） */}
                       <path d={coverArea} fill={`url(#gCover${coverKey})`} />
-                      <path d={`M${validData.map(d => `${xScale(d.age)},${yScale(Math.min(d[coverKey] || 0, d[dataKey]))}`).join(' L')}`} fill="none" stroke="#16a34a" strokeWidth="2" strokeDasharray={currentCover > 0 ? "none" : "4,3"} />
+                      {/* 必要額の輪郭線（最前面に再描画し、カバー時も境界が分かるように） */}
+                      <path d={`M${validData.map(d => `${xScale(d.age)},${yScale(d[dataKey])}`).join(' L')}`} fill="none" stroke="#dc2626" strokeWidth="2" />
+                      {/* 保険カバーの輪郭線 */}
+                      <path d={`M${validData.map(d => `${xScale(d.age)},${yScale(Math.min(d[coverKey] || 0, d[dataKey]))}`).join(' L')}`} fill="none" stroke="#16a34a" strokeWidth="2.5" strokeDasharray={currentCover > 0 ? "none" : "4,3"} />
                       {/* X軸 */}
                       <line x1={padL} y1={padT + chartH} x2={svgW - padR} y2={padT + chartH} stroke="#e2e8f0" strokeWidth="1" />
                       {/* X軸ラベル */}
@@ -1152,11 +1154,11 @@ export default function LifeSimulator() {
                     {/* 凡例 */}
                     <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                        <div style={{ width: 12, height: 8, borderRadius: 2, background: "#fca5a5" }} />
+                        <div style={{ width: 12, height: 8, borderRadius: 2, background: "#f87171", border: "1.5px solid #dc2626" }} />
                         <span style={{ fontSize: 9, color: "#64748b", fontFamily: "'Noto Sans JP', sans-serif" }}>{needLabel}</span>
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                        <div style={{ width: 12, height: 8, borderRadius: 2, background: "#4ade80" }} />
+                        <div style={{ width: 12, height: 8, borderRadius: 2, background: "rgba(34,197,94,0.5)", border: "1.5px solid #16a34a" }} />
                         <span style={{ fontSize: 9, color: "#64748b", fontFamily: "'Noto Sans JP', sans-serif" }}>{coverLabel}</span>
                       </div>
                     </div>
